@@ -8,12 +8,13 @@ using System.Linq;
 
 namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
    public class TableGroupViewModel : ViewModelCore {
+      public const string DefaultName = "Other";
 
       private bool isOpen;
       private int currentMember; // used with open/close when refreshing the collection
 
       private string groupName;
-      public bool DisplayHeader => GroupName != "Other";
+      public bool DisplayHeader => GroupName != DefaultName;
       public string GroupName { get => groupName; set => Set(ref groupName, value, old => NotifyPropertyChanged(nameof(DisplayHeader))); }
 
       public ObservableCollection<IArrayElementViewModel> Members { get; } = new();
@@ -21,7 +22,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public Action<IStreamArrayElementViewModel> ForwardModelChanged { get; init; }
       public Action<IStreamArrayElementViewModel> ForwardModelDataMoved { get; init; }
 
-      public TableGroupViewModel() { GroupName = "Other"; }
+      public TableGroupViewModel() { GroupName = DefaultName; }
 
       public bool IsOpen => isOpen;
 
@@ -83,6 +84,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                   viewModel = new ColorFieldArrayElementViewModel(viewPort, item.Name, itemAddress);
                } else if (item is ArrayRunCalculatedSegment calcSeg) {
                   viewModel = new CalculatedElementViewModel(viewPort, calcSeg, itemAddress);
+               } else if (item is ArrayRunOffsetRenderSegment renderSeg) {
+                  viewModel = new OffsetRenderViewModel(viewPort, renderSeg, itemAddress);
                } else {
                   viewModel = new FieldArrayElementViewModel(viewPort, item.Name, itemAddress, item.Length, new NumericFieldStrategy());
                }
@@ -116,7 +119,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          }
 
          IStreamArrayElementViewModel streamElement = null;
-         if (streamRun == null || streamRun is IStreamRun) streamElement = new TextStreamElementViewModel(viewPort, item.Name, itemAddress, pointerSegment.InnerFormat);
+         if (streamRun == null || streamRun is IStreamRun || streamRun is ITableRun) streamElement = new TextStreamElementViewModel(viewPort, item.Name, itemAddress, pointerSegment.InnerFormat);
          if (streamRun is ISpriteRun spriteRun) streamElement = new SpriteElementViewModel(viewPort, item.Name, spriteRun.FormatString, spriteRun.SpriteFormat, itemAddress);
          if (streamRun is IPaletteRun paletteRun) streamElement = new PaletteElementViewModel(viewPort, viewPort.ChangeHistory, item.Name, paletteRun.FormatString, paletteRun.PaletteFormat, itemAddress);
          if (streamRun is TrainerPokemonTeamRun tptRun) streamElement = new TrainerPokemonTeamElementViewModel(viewPort, tptRun, item.Name, itemAddress);

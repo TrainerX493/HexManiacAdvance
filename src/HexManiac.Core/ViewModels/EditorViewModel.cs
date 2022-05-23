@@ -250,6 +250,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       private bool matchExactCase;
       public bool MatchExactCase { get => matchExactCase; set => Set(ref matchExactCase, value); }
 
+      private bool searchAllFiles = true;
+      public bool SearchAllFiles { get => searchAllFiles; set => Set(ref searchAllFiles, value); }
+
       private bool logAppStartupProgress;
       public bool LogAppStartupProgress {
          get => logAppStartupProgress;
@@ -981,7 +984,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
          var searchedModels = new List<IDataModel>();
          foreach (var tab in tabs) {
-            if (tab is IViewPort viewPort && searchedModels.All(model => model != viewPort.Model)) {
+            bool searchThisTab = searchAllFiles || tab == SelectedTab;
+            if (searchThisTab && tab is IViewPort viewPort && searchedModels.All(model => model != viewPort.Model)) {
                results.AddRange(viewPort.Find(search, MatchExactCase).Select(offset => (viewPort, offset.start, offset.end)));
                searchedModels.Add(viewPort.Model);
             }
@@ -1138,7 +1142,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
          if (e.PropertyName == nameof(IViewPort.Name)) {
             // the file's display name changes whenever it's edited or saved (trailing *)
-            runFile.RaiseCanExecuteChanged();
+            workDispatcher.DispatchWork(runFile.RaiseCanExecuteChanged);
          }
 
          // when one tab's height updates, update other tabs by the same amount.

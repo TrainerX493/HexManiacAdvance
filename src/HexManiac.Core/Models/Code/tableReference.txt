@@ -35,9 +35,9 @@ data.maps.theme.popup,                      ,,,, ,,,, 0D4C54, [theme.mapnamepopu
 graphics.maps.names.popup.palettes,         ,,,, ,,,, 0D4CA0, `ucp4:012345`
 graphics.maps.names.popup.background,       ,,,, ,,,, 0D4CA4, `ucs4x10x18|graphics.maps.names.popup.palettes`
 graphics.maps.names.popup.outline,          ,,,, ,,,, 0D4C58, `ucs4x6x30|graphics.maps.names.popup.palettes`
-data.maps.banks,                       053324, 053324, 053344, 053344,       ,       ,       ,       ,       , [maps<[map<[layout<[width:: height:: s1<> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<> borderwidth. borderheight. unused:]1> events<[e1 e2 e3 e4 ee1<> ee2<> ee3<> ee4<>]1> mapscripts<[type. pointer<>]!00> d<> song: map: label. flash. weather. type. unused: useLabel:]1>]1>]34
-data.maps.banks,                             ,       ,       ,       , 05524C, 05524C, 055260, 055260,       , [maps<[map<[layout<[width:: height:: s1<> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<> borderwidth. borderheight. unused:]1> events<[e1 e2 e3 e4 ee1<> ee2<> ee3<> ee4<>]1> mapscripts<[type. pointer<>]!00> d<> song: map: label. flash. weather. type. unused: useLabel:]1>]1>]43
-data.maps.banks,                             ,       ,       ,       ,       ,       ,       ,       , 084AA4, [maps<[map<[layout<[width:: height:: borderblock<[border:|h]4> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<>]1> events<[objects. warps. scripts. signposts. objectP<[id. graphics. unused: x:1000 y:1000 elevation. moveType. range:|t|x::|y:: trainerType: trainerRangeOrBerryID: script<`xse`> flag: unused:]/objects> warpP<[x:1000 y:1000 elevation. warpID. map. bank.]/warps> scriptP<[x:1000 y:1000 elevation: trigger: index: unused: script<`xse`>]/scripts> signpostP<[x:1000 y:1000 elevation. kind. unused: arg::|h]/signposts>]1> mapscripts<[type. pointer<>]!00> d<> song: map: label. flash. weather. type. unused: useLabel:]1>]?>]34
+data.maps.banks,                       053324, 053324, 053344, 053344,       ,       ,       ,       ,       , [maps<[map<[layout<[width:: height:: s1<> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<> borderwidth. borderheight. unused:]1> events<[e1 e2 e3 e4 ee1<> ee2<> ee3<> ee4<>]1> mapscripts<[type. pointer<>]!00> connections<> song: map: label. flash. weather. type. unused: useLabel:]1>]1>]34
+data.maps.banks,                             ,       ,       ,       , 05524C, 05524C, 055260, 055260,       , [maps<[map<[layout<[width:: height:: s1<> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<> borderwidth. borderheight. unused:]1> events<[e1 e2 e3 e4 ee1<> ee2<> ee3<> ee4<>]1> mapscripts<[type. pointer<>]!00> connections<> song: map: label. flash. weather. type. unused: useLabel:]1>]1>]43
+data.maps.banks,                             ,       ,       ,       ,       ,       ,       ,       , 084AA4, [maps<[map<[layout<[width:: height:: borderblock<[border:|h]4> s2<> tiles<[a. b. c. d. tileset<`lzt4`> pal<`ucp4:0123456789ABCDEF`> block<> unknown<> blockend<>]1> s4<>]1> events<[objects. warps. scripts. signposts. objectP<[id. graphics. unused: x:1000 y:1000 elevation. moveType. range:|t|x::|y:: trainerType: trainerRangeOrBerryID: script<`xse`> flag: unused:]/objects> warpP<[x:1000 y:1000 elevation. warpID. map. bank.]/warps> scriptP<[x:1000 y:1000 elevation: trigger: index: unused: script<`xse`>]/scripts> signpostP<[x:1000 y:1000 elevation. kind. unused: arg::|h]/signposts>]1> mapscripts<[type. pointer<>]!00> connections<> song: map: label. flash. weather. type. unused: useLabel:]1>]?>]34
 data.maps.dungeons.stats,                    ,       ,       ,       , 0C1904, 0C18D8, 0C18EC, 0C18EC,       , [id:: name<""> description<"">]19
 
 data.maps.heal.map,                          ,       ,       ,       , 0BFD80, 0BFD54, 0BFD94, 0BFD68,       , [bank: map:]20
@@ -55,8 +55,8 @@ graphics.pokemon.sprites.egg,               ,,,, 26011C, 2600FC, 26018C, 26016C,
 graphics.pokemon.palettes.egg,              ,,,, 26012C, 26010C, 26019C, 26017C, , `ucp4`
 graphics.pokemon.sprites.elevation,         032974, 032974, 032974, 032974, 0356F8, 0356F8, 03570C, 03570C, 05EE44, [elevation.]data.pokemon.names
 graphics.pokemon.sprites.footprint,         0917C8, 0917C8, 0917E8, 0917E8, 105E14, 105DEC, 105E8C, 105E64, 0C0DBC, [footprint<`ucs1x2x2`>]data.pokemon.names+1
-graphics.pokemon.sprites.coordinates.front, 00B2BC, 00B2BC, 00B2BC, 00B2BC, 011F4C, 011F4C, 011F60, 011F60, 02DC78, [size. yOffset. unused:]data.pokemon.names+28
-graphics.pokemon.sprites.coordinates.back,  0319A8, 0319A8, 0319A8, 0319A8, 074634, 074634, 074648, 074648, 0A5E8C, [size. yOffset. unused:]data.pokemon.names+28
+graphics.pokemon.sprites.coordinates.front, 00B2BC, 00B2BC, 00B2BC, 00B2BC, 011F4C, 011F4C, 011F60, 011F60, 02DC78, [size.|t|width::|height:: yOffset. render|render=graphics.battle.background.sprites/0/battlemap/|0|0|240|112|graphics.pokemon.sprites.front|144|0||yOffset unused:]data.pokemon.names+28
+graphics.pokemon.sprites.coordinates.back,  0319A8, 0319A8, 0319A8, 0319A8, 074634, 074634, 074648, 074648, 0A5E8C, [size.|t|width::|height:: yOffset. render|render=graphics.battle.background.sprites/0/battlemap/|0|0|240|112|graphics.pokemon.sprites.back|40|48||yOffset unused:]data.pokemon.names+28
 graphics.pokemon.sprites.anchor,                  ,       ,       ,       , 12EAE0, 12EAB8, 12EB58, 12EB30,       , [x1. y1. yClose. x2. y2.]data.pokemon.names-1+2 // TODO test with LG and 1.1
 graphics.pokemon.palettes.normal,           040954, 040954, 040974, 040974, 000130, 000130, 000130, 000130, 000130, ^[palette<`lzp4`> index: unused:]data.pokemon.names+28
 graphics.pokemon.palettes.shiny,            04098C, 04098C, 0409AC, 0409AC, 000134, 000134, 000134, 000134, 000134, [palette<`lzp4`> index: unused:]data.pokemon.names+28
@@ -146,7 +146,7 @@ data.items.effects,                          ,       ,       ,       , 03A2B0, 0
 data.items.effects,                          ,       ,       ,       ,       ,       ,       ,       , 063FDC, [data<`pie`>]data.items.stats-13-201
 data.items.berry.stats,                0525D0, 0525D0, 0525F0, 0525F0, 09C77C, 09C750, 09C790, 09C764, 021CA4, [name""7 firmness. size: maxYield. minYield. description1<""> description2<""> stageDuration. spicy. dry. sweet. bitter. sour. smoothness:]43
 data.pokemon.moves.stats.battle,       00CA54, 00CA54, 00CA54, 00CA54, 0001CC, 0001CC, 0001CC, 0001CC, 0001CC, [effect.moveeffectoptions power. type.data.pokemon.type.names accuracy. pp. effectAccuracy. target|b[]movetarget priority.|z info|b[]moveinfo unused. unused:]data.pokemon.moves.names
-data.pokemon.moves.stats.contest,      0A0290, 13389C, 1338BC, 1338BC,       ,       ,       ,       , 0D85F0, [appeal. type.data.pokemon.type.contest.names combo_key. combo_a. combo_b. combo_c. padding:]data.pokemon.moves.names
+data.pokemon.moves.stats.contest,      0A0290, 13389C, 1338BC, 1338BC,       ,       ,       ,       , 0D85F0, [effect.data.pokemon.contest.effects type.data.pokemon.type.contest.names combo_key.contestcombostarter combo_a.contestcombostarter combo_b.contestcombostarter combo_c.contestcombostarter padding:]data.pokemon.moves.names
 data.pokemon.moves.levelup,            03B7BC, 03B7BC, 03B7BC, 03B7BC, 03EA7C, 03EA7C, 03EA90, 03EA90, 06930C, [movesFromLevel<[pair:|t|move::::.data.pokemon.moves.names|level:::.]!FFFF>]data.pokemon.names
 data.pokemon.moves.tutors,                   ,       ,       ,       , 120BE4, 120BBC, 120C5C, 120C34,       , [move:data.pokemon.moves.names]15
 data.pokemon.moves.tutors,                   ,       ,       ,       ,       ,       ,       ,       , 1B236C, [move:data.pokemon.moves.names]30
@@ -204,6 +204,9 @@ data.battle.text,                                         ,       ,       ,     
 data.battle.text,                                         ,       ,       ,       ,       ,       ,       ,       , 13EC60, [text<"">]369
 data.pokemon.contest.stats,            0AE470, 0AE470, 0AE490, 0AE490, ,,,,       , [species:data.pokemon.names nickname""11 trainerName""8 trainerGfxId. unused: aiChecks::|h flags|b[]contestPokemonFlags unused. move1:data.pokemon.moves.names move2:data.pokemon.moves.names move3:data.pokemon.moves.names move4:data.pokemon.moves.names cool. beauty. cute. smart. tough. sheen. highestRank. gameCleared. unused""10 personality::|h otId:|h unused:]60
 data.pokemon.contest.stats,                  ,       ,       ,       , ,,,, 0DABE4, [species:data.pokemon.names nickname""11 trainerName""8 trainerGfxId. unused: aiChecks::|h flags|b[]contestPokemonFlags unused. move1:data.pokemon.moves.names move2:data.pokemon.moves.names move3:data.pokemon.moves.names move4:data.pokemon.moves.names cool. beauty. cute. smart. tough. sheen. highestRank. gameCleared. unused""10 personality::|h otId:|h unused:]96
+data.pokemon.contest.effects,          0A0650, 0A0650, 0A0670, 0A0670, ,,,, 0DB314, [type.contesteffects appeal. jam. unused.]contesteffectnames
+data.pokemon.contest.descriptions,     0A04C4, 0A04C4, 0A04E4, 0A04E4, ,,,, 0DB4D4, [description<"">]contesteffectnames
+data.pokemon.contest.thumb,            ,,,, ,,,, 0DD1E8, [thumb<>]contesteffectnames
 data.pokemon.contest.paintings,        ,,,, ,,,, 0DF07C, [personality:: trainerID::|h species:data.pokemon.names paintmode. nickname""11 trainerName""8 rank:]8
 
 
@@ -236,6 +239,11 @@ data.battlefrontier.pokemon,           ,,,, ,,,, 165C80, [species:data.pokemon.n
 data.battlefrontier.trainers,          ,,,, ,,,, 165C78, [facilityclass::data.battlefrontier.trainerclass trainername""8 before1:|h before2:|h before3:|h before4:|h before5:|h before6:|h win1:|h win2:|h win3:|h win4:|h win5:|h win6:|h lose1:|h lose2:|h lose3:|h lose4:|h lose5:|h lose6:|h teamoptions<[pokemon:data.battlefrontier.pokemon]!FFFF>]300
 data.battlefrontier.tutor.descriptions1,,,,,,,,, 13ADB4, [description<"">]11
 data.battlefrontier.tutor.descriptions2,,,,,,,,, 13AD8C, [description<"">]11
+data.battlefrontier.clerks.decor1.icons,    ,,,, ,,,, 13AAE0, [item:data.decorations.stats]!FFFF
+data.battlefrontier.clerks.decor2.icons,    ,,,, ,,,, 13AB24, [item:data.decorations.stats]!FFFF
+data.battlefrontier.clerks.vitamin.icons,   ,,,, ,,,, 13AB90, [item:data.items.stats]!FFFF
+data.battlefrontier.clerks.helditems.icons, ,,,, ,,,, 13ABD0, [item:data.items.stats]!FFFF
+
 
 graphics.trainercard.frontier.sprite,      ,,,, ,,,, 0C55CC, `lzs8x16x14|graphics.trainercard.frontier.palette`
 graphics.trainercard.frontier.pass.sprite, ,,,, ,,,, 0C55C8, `lzs4x16x32|graphics.trainercard.frontier.palette`
