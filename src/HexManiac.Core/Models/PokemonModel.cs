@@ -82,7 +82,7 @@ namespace HavenSoft.HexManiac.Core.Models {
 
       // for a name, where is it?
       // for a location, what is its name?
-      private readonly IDictionary<string, int> addressForAnchor = new Dictionary<string, int>();
+      private readonly IDictionary<string, int> addressForAnchor = new ThreadSafeDictionary<string, int>();
       private readonly Dictionary<int, string> anchorForAddress = new Dictionary<int, string>();
 
       // for a name not actually in the file, what pointers point to it?
@@ -181,7 +181,6 @@ namespace HavenSoft.HexManiac.Core.Models {
             WritePointerRuns(pointersForDestination, destinationForSource);
             WriteSpriteRuns(pointersForDestination);
             WriteStringRuns(pointersForDestination);
-            ResolveConflicts();
             FreeSpaceStart = EarliestAllowedAnchor;
 
             if (metadata == null) return;
@@ -214,12 +213,11 @@ namespace HavenSoft.HexManiac.Core.Models {
                WordRun newRun;
                if (index > 0) {
                   newRun = new WordRun(word.Address, word.Name, word.Length, word.AddOffset, word.MultOffset, word.Note, runs[index].PointerSources);
-                  SetIndex(index, newRun);
                } else {
-                  ClearFormat(noChange, word.Address, word.Length);
                   newRun = new WordRun(word.Address, word.Name, word.Length, word.AddOffset, word.MultOffset, word.Note);
-                  ObserveRunWritten(noChange, newRun);
                }
+               ClearFormat(noChange, word.Address, word.Length);
+               ObserveRunWritten(noChange, newRun);
                CompleteCellEdit.UpdateAllWords(this, newRun, noChange, this.ReadMultiByteValue(word.Address, word.Length), true);
             }
             RemoveMatchedWordsThatDoNotMatch(noChange);
@@ -255,7 +253,7 @@ namespace HavenSoft.HexManiac.Core.Models {
                }
             }
 
-            ResolveConflicts();
+            if (GetType() == typeof(PokemonModel)) ResolveConflicts();
          }
       }
 
@@ -692,7 +690,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          return errorInfo;
       }
 
-      private static ErrorInfo UniquifyName(IDataModel model, ModelDelta changeToken, int desiredAddressForName, ref string name) {
+      public static ErrorInfo UniquifyName(IDataModel model, ModelDelta changeToken, int desiredAddressForName, ref string name) {
          var address = model.GetAddressFromAnchor(changeToken, -1, name);
          if (address == Pointer.NULL || address == desiredAddressForName) return ErrorInfo.NoError;
 
@@ -879,17 +877,21 @@ namespace HavenSoft.HexManiac.Core.Models {
       public override IFormattedRun GetNextRun(int dataIndex) {
          if (dataIndex == Pointer.NULL) return NoInfoRun.NullRun;
          lock (threadlock) {
-            var index = BinarySearch(dataIndex);
-            if (index < 0) {
-               index = ~index;
-               if (index > 0) {
-                  var previous = runs[index - 1];
-                  if (previous.Start + previous.Length > dataIndex) index -= 1;
-               }
-            }
+            var index = GetIndexForNextRun(dataIndex);
             if (index >= runs.Count) return NoInfoRun.NullRun;
             return runs[index];
          }
+      }
+
+      private int GetIndexForNextRun(int address) {
+         var index = BinarySearch(address);
+         if (index >= 0) return index;
+         index = ~index;
+         if (index > 0) {
+            var previous = runs[index - 1];
+            if (previous.Start + previous.Length > address) index -= 1;
+         }
+         return index;
       }
 
       public override IFormattedRun GetNextAnchor(int dataIndex) {
@@ -1249,7 +1251,6 @@ namespace HavenSoft.HexManiac.Core.Models {
          } else {
             // the pointer points to a known normal anchor
             var existingRun = runs[index];
-            changeToken.RemoveRun(existingRun);
             var previousRun = existingRun;
             existingRun = existingRun.MergeAnchor(new SortedSpan<int>(start));
             UpdateNewRunFromPointerFormat(ref existingRun, segment as ArrayRunPointerSegment, segments, parentIndex, changeToken);
@@ -1262,6 +1263,7 @@ namespace HavenSoft.HexManiac.Core.Models {
                   } else {
                      SetIndex(index, existingRun);
                   }
+                  changeToken.RemoveRun(previousRun);
                   changeToken.AddRun(existingRun);
                } else {
                   if (previousRun.FormatString != existingRun.FormatString) {
@@ -1568,12 +1570,12 @@ namespace HavenSoft.HexManiac.Core.Models {
       }
 
       // for each of the results, we recognized it as text: see if we need to add a matching string run / pointers
-      public override int ConsiderResultsAsTextRuns(ModelDelta currentChange, IReadOnlyList<int> searchResults) {
+      public override int ConsiderResultsAsTextRuns(Func<ModelDelta> futureChange, IReadOnlyList<int> searchResults) {
          int resultsRecognizedAsTextRuns = 0;
          foreach (var result in searchResults) {
-            var run = ConsiderAsTextStream(this, result, currentChange);
+            var run = ConsiderAsTextStream(this, result, futureChange);
             if (run != null) {
-               ObserveAnchorWritten(currentChange, string.Empty, run);
+               ObserveAnchorWritten(futureChange(), string.Empty, run);
                resultsRecognizedAsTextRuns++;
             }
          }
@@ -1595,14 +1597,14 @@ namespace HavenSoft.HexManiac.Core.Models {
          return true;
       }
 
-      public static PCSRun ConsiderAsTextStream(IDataModel model, int address, ModelDelta currentChange) {
+      public static PCSRun ConsiderAsTextStream(IDataModel model, int address, Func<ModelDelta> futureCurrentChange) {
          var nextRun = model.GetNextRun(address);
          if (nextRun.Start < address) return null;
          if (nextRun.Start == address && !(nextRun is NoInfoRun)) return null;
          var length = PCSString.ReadString(model, address, true);
          if (length < 1) return null;
          if (address + length > nextRun.Start && nextRun.Start != address) return null;
-         var pointers = model.SearchForPointersToAnchor(currentChange, address); // this is slow and change the metadata. Only do it if we're sure we want the new PCSRun
+         var pointers = model.SearchForPointersToAnchor(futureCurrentChange(), address); // this is slow and change the metadata. Only do it if we're sure we want the new PCSRun
          if (pointers.Count == 0) return null;
          return new PCSRun(model, address, length, pointers);
       }
@@ -1796,7 +1798,6 @@ namespace HavenSoft.HexManiac.Core.Models {
       private void ClearPointerFromAnchor(ModelDelta changeToken, int start, RunPath index) {
          var anchorRun = runs[index];
          var newAnchorRun = anchorRun.RemoveSource(start);
-         changeToken.RemoveRun(anchorRun);
 
          // the only run that is allowed to exist with nothing pointing to it and no name is a pointer run.
          // if it's any other kind of run with no name and no pointers to it, remove it.
@@ -1804,13 +1805,16 @@ namespace HavenSoft.HexManiac.Core.Models {
             if (anchorRun.Start <= start && anchorRun.Start + anchorRun.Length > start) {
                // calling ClearFormat would try to clear the element we're already removing
                // no need to do that: This element should get removed higher up the callstack.
+               changeToken.RemoveRun(anchorRun);
             } else {
                ClearFormat(changeToken, anchorRun.Start, anchorRun.Length, false, false);
             }
          } else if (newAnchorRun.PointerSources.Count == 0 && !anchorForAddress.ContainsKey(newAnchorRun.Start) && newAnchorRun is PointerRun) {
             // if it IS a pointer run, we still need to remove the anchor by setting the pointerSources to null.
+            changeToken.RemoveRun(anchorRun);
             SetIndex(index, new PointerRun(newAnchorRun.Start));
          } else {
+            changeToken.RemoveRun(anchorRun);
             SetIndex(index, newAnchorRun);
             changeToken.AddRun(newAnchorRun);
          }
@@ -1844,7 +1848,7 @@ namespace HavenSoft.HexManiac.Core.Models {
                   start += len;
                   continue;
                }
-               if (run.Start == start) {
+               if (run.Start == start && run.Length <= length) {
                   if (run is LZRun lzRun) {
                      // the user is copying an lzrun. Make sure to include a metacommand to insert a new lzrun during the paste.
                      text.Append($"@!lz({lzRun.DecompressedLength}) ");
@@ -1915,14 +1919,21 @@ namespace HavenSoft.HexManiac.Core.Models {
          var textSample = GetSampleText(run);
          var initialAddress = run.Start.ToString("X6");
 
-         return $"misc.{gameCodeText}_{initialAddress}{textSample}";
+         var defaultName = $"misc.temp.{gameCodeText}_{initialAddress}{textSample}";
+         if (!addressForAnchor.ContainsKey(defaultName)) return defaultName;
+
+         int counter = 0;
+         while (true) {
+            counter++;
+            if (!addressForAnchor.ContainsKey(defaultName + "_" + counter)) return defaultName + "_" + counter;
+         }
       }
 
       /// <summary>
       /// If this model recognizes a GameCode AsciiRun, return that code formatted as a name.
       /// </summary>
       public static string ReadGameCode(IDataModel model) {
-         var address = model.GetAddressFromAnchor(new NoDataChangeDeltaModel(), -1, "GameCode");
+         var address = model.GetAddressFromAnchor(new NoDataChangeDeltaModel(), -1, "data.header.gamecode");
          if (address == Pointer.NULL) return string.Empty;
          if (!(model.GetNextRun(address) is AsciiRun gameCode) || gameCode.Start != address) return string.Empty;
          return new string(gameCode.Length.Range().Select(i => (char)model[gameCode.Start + i]).ToArray());
@@ -1933,7 +1944,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       /// </summary>
       private string GetSampleText(IFormattedRun run) {
          if (!(run is PCSRun)) return string.Empty;
-         var text = PCSString.Convert(this, run.Start, run.Length);
+         var text = TextConverter.Convert(this, run.Start, run.Length);
          var words = text.Split(' ');
          if (words.Length > 3) words = words.Take(3).ToArray();
          text = string.Concat(words);
@@ -2063,6 +2074,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          var anchors = new List<StoredAnchor>();
          foreach (var kvp in anchorForAddress) {
             var (address, name) = (kvp.Key, kvp.Value);
+            if (name.StartsWith("misc.temp.")) continue; // don't persist miscilaneous temp anchors
             var index = BinarySearch(address);
             if (index < 0) continue;
             var format = runs[index].FormatString;
@@ -2090,7 +2102,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          foreach (var kvp in this.lists) {
             var name = kvp.Key;
             var members = kvp.Value.Select((text, i) => i.ToString() == text ? null : text);
-            lists.Add(new StoredList(name, members.ToList()));
+            lists.Add(new StoredList(name, members.ToList(), kvp.Value.StoredHash));
          }
 
          var unmappedConstants = new List<StoredUnmappedConstant>();
@@ -2473,6 +2485,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       public bool HashMatches => StoredList.GenerateHash(Tables) == Hash;
 
       public TableGroup(string groupName, IReadOnlyList<string> tables, string hash) : this(groupName, tables) {
+         if (hash == null) hash = StoredList.GenerateHash(tables);
          this.hash = hash;
       }
    }
@@ -2497,6 +2510,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       private static readonly int[] TargetAddresses = new int[] { };
       public int InsertCount { get; private set; }
       public int RemoveCount { get; private set; }
+      public Dictionary<Type, int> RemovedRunTypes { get; } = new();
       public int ReplaceCount { get; private set; }
       void ICollection<IFormattedRun>.Add(IFormattedRun item) {
          if (TargetAddresses.Contains(item.Start)) Debugger.Break();
@@ -2512,6 +2526,11 @@ namespace HavenSoft.HexManiac.Core.Models {
          var item = this[index];
          if (TargetAddresses.Contains(item.Start)) Debugger.Break();
          RemoveCount += 1;
+
+         var type = item.GetType();
+         if (!RemovedRunTypes.ContainsKey(type)) RemovedRunTypes[type] = 0;
+         RemovedRunTypes[type] += 1;
+
          RemoveAt(index);
       }
       IFormattedRun IList<IFormattedRun>.this[int index] {

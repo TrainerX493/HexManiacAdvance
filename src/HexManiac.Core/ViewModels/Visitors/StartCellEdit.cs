@@ -138,7 +138,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
          }
          if (run is PCSRun && run.Start == MemoryLocation && Input == ' ') return;
 
-         Result = Input == StringDelimeter || PCSString.PCS.Any(str => str != null && str.StartsWith(Input.ToString()));
+         Result = Input == StringDelimeter ||
+            PCSString.PCS.Any(str => str != null && str.StartsWith(Input.ToString())) ||
+            Model.TextConverter.AnyMacroStartsWith(Input.ToString());
       }
 
       public void Visit(EscapedPCS pcs, byte data) {
@@ -148,6 +150,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
       public void Visit(ErrorPCS pcs, byte data) => Visit((PCS)null, data);
 
       public void Visit(Ascii ascii, byte data) => Result = true;
+
+      public void Visit(Braille braille, byte data) => Result = true;
 
       public void Visit(Integer intFormat, byte data) {
          if (Input == '+' && Model.GetNextRun(MemoryLocation) is LzSpriteRun spriteRun && spriteRun.Start == MemoryLocation - 1 && spriteRun.Pages == 1) {
@@ -223,7 +227,14 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
 
       public void Visit(LzCompressed lz, byte data) => Result = char.IsDigit(Input);
 
-      public void Visit(LzUncompressed lz, byte data) => Result = ViewPort.AllHexCharacters.Contains(Input);
+      public void Visit(LzUncompressed lz, byte data) {
+         if (Input == '+' && Model.GetNextRun(MemoryLocation) is SpriteRun spriteRun && spriteRun.Start == MemoryLocation) {
+            Result = true;
+            return;
+         }
+
+         Result = ViewPort.AllHexCharacters.Contains(Input);
+      }
 
       public void Visit(UncompressedPaletteColor color, byte data) {
          Result = ViewPort.AllHexCharacters.Contains(Input);

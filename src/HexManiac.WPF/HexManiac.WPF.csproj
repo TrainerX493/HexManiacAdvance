@@ -34,9 +34,25 @@
     <None Include="Scripts\How_To_Use_HMA_Files.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="Scripts\StevenBugFix.hma">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Scripts\AddProfessorPokemonConstantsToRubySapphire.hma">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Scripts\type_items.hma">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Scripts\ability_type_swaps.hma">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Scripts\entrance_abilities.hma">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Crc32.NET" Version="1.2.0" />
+    <PackageReference Include="IronPython" Version="3.4.0-beta1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(SolutionDir)src\HexManiac.Core\HexManiac.Core.csproj" />
@@ -46,8 +62,7 @@
     <Resource Include="Resources\AppImage.png" />
   </ItemGroup>
   <PropertyGroup>
-    <PostBuildEvent>
-      if not exist "$(TargetDir)resources" mkdir "$(TargetDir)resources"
+    <PostBuildEvent>      if not exist "$(TargetDir)resources" mkdir "$(TargetDir)resources"
       if not exist "$(TargetDir)resources\Scripts" mkdir "$(TargetDir)resources\Scripts"
       copy "$(TargetDir)Models\Code\*.txt" "$(TargetDir)resources"
       del "$(TargetDir)Models\Code\*.txt"
@@ -59,10 +74,12 @@
       del "$(TargetDir)Scripts\*.hma"
       del "$(TargetDir)Scripts\*.png"
       del "$(TargetDir)Scripts\*.txt"
-      
-      <!-- Delete AutoImplement.Tool, it's not needed in this output directory -->
-      del "$(TargetDir)AutoImplement.Tool.exe"
-      del "$(TargetDir)AutoImplement.Tool.*.json"
-    </PostBuildEvent>
+      rmdir "$(TargetDir)Scripts"
+      rmdir "$(TargetDir)Models\Code"
+      rmdir "$(TargetDir)Models"
+      del "$(TargetDir)IronPython.SQLite.dll"
+      del "$(TargetDir)Mono.Unix.dll"
+      rmdir "$(TargetDir)runtimes" /s /q
+</PostBuildEvent>
   </PropertyGroup>
 </Project>

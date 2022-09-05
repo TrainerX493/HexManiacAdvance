@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Windows.Input;
 
 namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
@@ -32,6 +33,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private readonly List<BitElement> children = new List<BitElement>();
       private readonly ArrayRunElementSegment segment;
       private readonly ArrayRun rotatedBitArray;
+      private readonly ViewPort viewPort;
 
       private int start;
 
@@ -43,11 +45,36 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       public ICommand LinkCommand { get; }
 
+      #region Mass Copy/Paste for rotated bit arrays
+
+      public bool CanMassCopy => rotatedBitArray != null;
+      public void MassCopy(IFileSystem fileSystem) {
+         var content = new StringBuilder();
+         foreach (var child in children) content.Append(child.IsChecked ? "1" : "0");
+         fileSystem.CopyText = content.ToString();
+      }
+
+      public bool CanMassPaste => rotatedBitArray != null;
+      public void MassPaste(IFileSystem fileSystem) {
+         var content = fileSystem.CopyText;
+         if (!content.All("01".Contains)) {
+            viewPort.RaiseError("Expected only 0s and 1s");
+         } else if (content.Length != children.Count) {
+            viewPort.RaiseError($"Expected exactly {children.Count} flags, but there were {content.Length} flags.");
+         } else {
+            for (int i = 0; i < children.Count; i++) children[i].IsChecked = content[i] == '1';
+         }
+      }
+
+      #endregion
+
       private bool visible = true;
       public bool Visible { get => visible; set => Set(ref visible, value); }
 
-      private EventHandler dataChanged;
+      private EventHandler dataChanged, dataSelected;
       public event EventHandler DataChanged { add => dataChanged += value; remove => dataChanged -= value; }
+
+      public event EventHandler DataSelected { add => dataSelected += value;remove => dataSelected -= value; }
 
       private StubCommand selectAll, unselectAll;
       public ICommand SelectAll => StubCommand(ref selectAll, () => SetAll(true));
@@ -59,9 +86,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          UpdateModelFromView();
       }
 
-      public BitListArrayElementViewModel(Selection selection, ChangeHistory<ModelDelta> history, IDataModel model, string name, int start) {
-         this.history = history;
-         this.model = model;
+      public BitListArrayElementViewModel(ViewPort viewPort, string name, int start) {
+         this.viewPort = viewPort;
+         this.history = viewPort.ChangeHistory;
+         this.model = viewPort.Model;
          Name = name;
          this.start = start;
 
@@ -73,14 +101,14 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
             LinkCommand = new StubCommand {
                CanExecute = arg => optionSource != Pointer.NULL,
-               Execute = arg => selection.GotoAddress(optionSource),
+               Execute = arg => viewPort.Goto.Execute(optionSource),
             };
          } else if (segment is ArrayRunEnumSegment) {
             rotatedBitArray = FillBodyRotated();
 
             LinkCommand = new StubCommand {
                CanExecute = arg => true,
-               Execute = arg => selection.GotoAddress(rotatedBitArray.Start),
+               Execute = arg => viewPort.Goto.Execute(rotatedBitArray.Start),
             };
          } else {
             throw new NotImplementedException();
@@ -217,6 +245,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             children[i].PropertyChanged += ChildChanged;
          }
          dataChanged = bitList.dataChanged;
+         dataSelected = bitList.dataSelected;
 
          return true;
       }

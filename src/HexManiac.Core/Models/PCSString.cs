@@ -1,12 +1,45 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace HavenSoft.HexManiac.Core.Models {
-   public class PCSString {
+   public interface ITextConverter {
+      List<byte> Convert(string text, out bool containsBadCharacters);
+      string Convert(IReadOnlyList<byte> data, int startIndex, int length);
+      bool AnyMacroStartsWith(string input);
+   }
+
+   public class PCSConverter : ITextConverter {
+      private readonly string gameCode;
+      public PCSConverter(string gameCode) {
+         this.gameCode = gameCode;
+         if (this.gameCode.Length > 4) this.gameCode = gameCode.Substring(4);
+      }
+
+      public List<byte> Convert(string text, out bool containsBadCharacters) {
+         return PCSString.Convert(text, gameCode, out containsBadCharacters);
+      }
+
+      public string Convert(IReadOnlyList<byte> data, int startIndex, int length) {
+         return PCSString.Convert(gameCode, data, startIndex, length);
+      }
+
+      public bool AnyMacroStartsWith(string input) {
+         if (!PCSString.TextMacros.TryGetValue(gameCode, out var macros)) return false;
+         return macros.Keys.Any(key => key.StartsWith(input));
+      }
+   }
+
+   public static class PCSString {
+      private const string TextReferenceFileName = "resources/pcsReference.txt";
+
       public static IReadOnlyList<string> PCS;
       public static IReadOnlyList<byte> Newlines;
+      public static IReadOnlyDictionary<byte, byte> ControlCodeLengths;
+      public static IReadOnlyDictionary<string, IReadOnlyDictionary<string, byte[]>> TextMacros;
 
       public static readonly byte DynamicEscape = 0xF7;
       public static readonly byte FunctionEscape = 0xFC;
@@ -14,7 +47,86 @@ namespace HavenSoft.HexManiac.Core.Models {
       public static readonly byte Escape = 0xFD;
 
       static PCSString() {
+         if (File.Exists(TextReferenceFileName)) {
+            var referenceText = File.ReadAllLines(TextReferenceFileName);
+            PCS = GetPCSFromReference(referenceText);
+            ControlCodeLengths = GetControlCodeLengthsFromReference(referenceText);
+            TextMacros = GetTextMacrosFromReference(referenceText);
+         } else {
+            PCS = GetDefaultPCS();
+            ControlCodeLengths = GetDefaultControlCodeLengths();
+            TextMacros = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>();
+         }
+
+         Newlines = new byte[] { 0xFA, 0xFB, 0xFE };
+      }
+
+      private static IReadOnlyList<string> GetPCSFromReference(string[] reference) {
          var pcs = new string[0x100];
+
+         for (int i = 0; i < reference.Length; i++) {
+            if (!reference[i].StartsWith("0x")) continue;
+            var line = reference[i].Substring(2).Split('#').First().Trim();
+            var parts = line.Split(new[] { '=' }, 2);
+            if (parts.Length != 2) continue;
+            parts[0] = parts[0].Trim();
+            parts[1] = parts[1].Trim();
+            if (!int.TryParse(parts[0], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out int start)) continue;
+            if (parts[1].Length > 1 && parts[1].StartsWith("\"") && parts[1].EndsWith("\"")) {
+               parts[1] = parts[1].Substring(1, parts[1].Length - 2);
+               for (int j = 0; j < parts[1].Length; j++) pcs[start + j] = parts[1][j].ToString();
+            } else {
+               pcs[start] = parts[1];
+            }
+         }
+
+         return pcs;
+      }
+
+      private static IReadOnlyDictionary<byte, byte> GetControlCodeLengthsFromReference(string[] reference) {
+         var lengths = new Dictionary<byte, byte>();
+
+         for (int i = 0; i < reference.Length; i++) {
+            if (!reference[i].StartsWith("CC_")) continue;
+            var line = reference[i].Substring(3).Split('#').First().Trim();
+            var parts = line.Split(new[] { '=' }, 2);
+            if (parts.Length != 2) continue;
+            if (!byte.TryParse(parts[0].Trim(), NumberStyles.HexNumber, CultureInfo.CurrentCulture, out byte code)) continue;
+            if (!byte.TryParse(parts[1].Trim(), out byte argCount)) continue;
+            lengths[code] = (byte)(argCount + 1);
+         }
+
+         return lengths;
+      }
+
+      private static IReadOnlyDictionary<string, IReadOnlyDictionary<string, byte[]>> GetTextMacrosFromReference(string[] reference) {
+         var macros = new Dictionary<string, IReadOnlyDictionary<string, byte[]>>();
+         foreach(var game in new[] { "AXVE", "AXPE", "BPRE", "BPGE", "BPEE" }) {
+            macros.Add(game, GetTextMacrosFromReference(reference, game));
+         }
+         return macros;
+      }
+
+      private static IReadOnlyDictionary<string, byte[]> GetTextMacrosFromReference(string[] reference, string gameCode) {
+         bool isInMacroSection = false;
+         var results = new Dictionary<string, byte[]>();
+
+         for (int i = 0; i < reference.Length; i++) {
+            if (reference[i].Trim().StartsWith("@!game(")) isInMacroSection = reference[i].Contains(gameCode);
+            if (!isInMacroSection) continue;
+            if (!reference[i].StartsWith("[")) continue;
+            var endOfMacro = reference[i].IndexOf("]");
+            var bytes = reference[i].Substring(endOfMacro + 1).Trim().ToByteArray();
+            var name = reference[i].Substring(0, endOfMacro + 1);
+            results.Add(name, bytes);
+         }
+
+         return results;
+      }
+
+      private static IReadOnlyList<string> GetDefaultPCS() {
+         var pcs = new string[0x100];
+
          pcs[0] = " ";
          Fill(pcs, "ÀÁÂÇÈÉÊËÌ", 0x01);
          Fill(pcs, "ÎÏÒÓÔ", 0x0B);
@@ -59,15 +171,37 @@ namespace HavenSoft.HexManiac.Core.Models {
          pcs[0xFE] = "\\n";
          pcs[0xFF] = "\"";
 
-         PCS = pcs;
-
-         Newlines = new byte[] { 0xFA, 0xFB, 0xFE };
+         return pcs;
       }
 
-      public static string Convert(IReadOnlyList<byte> data, int startIndex, int length) {
+      private static IReadOnlyDictionary<byte, byte> GetDefaultControlCodeLengths() {
+         var lengths = new Dictionary<byte, byte> {
+            [0x04] = 4, // (text, shadow, highlight) -> 3 params
+            [0x09] = 1, // pause : no variables
+            [0x0A] = 1, // wait for sound effect
+            [0x0B] = 3, // play background music : 1 variable, but it takes 2 bytes
+            [0x10] = 3, // play sound effects : 2 variables
+         };
+         return lengths;
+      }
+
+      public static string Convert(IReadOnlyList<byte> data, int startIndex, int length) => Convert(string.Empty, data, startIndex, length);
+
+      public static string Convert(string macroSet, IReadOnlyList<byte> data, int startIndex, int length) {
          var result = new StringBuilder("\"", length * 2);
+         if (!TextMacros.TryGetValue(macroSet, out var textMacros)) textMacros = null;
 
          for (int i = 0; i < length; i++) {
+            // check macros
+            if (textMacros != null) {
+               string macro = FindMacro(textMacros, data, startIndex + i);
+               if (macro != null) {
+                  result.Append(macro);
+                  i += TextMacros[macroSet][macro].Length - 1;
+                  continue;
+               }
+            }
+
             var currentByte = data[startIndex + i];
             if (PCS[currentByte] == null) {
                if (i == 0) return null;
@@ -96,14 +230,32 @@ namespace HavenSoft.HexManiac.Core.Models {
       }
 
       public static List<byte> Convert(string input) => Convert(input, out var _);
-      public static List<byte> Convert(string input, out bool containsBadCharacters) {
+      public static List<byte> Convert(string input, out bool containsBadCharacters) => Convert(input, string.Empty, out containsBadCharacters);
+      public static List<byte> Convert(string input, string macroSet, out bool containsBadCharacters) {
          if (input.StartsWith("\"")) input = input.Substring(1); // trim leading " at start of string
          var result = new List<byte>();
          containsBadCharacters = false;
 
+         if (!TextMacros.TryGetValue(macroSet, out var textMacros)) textMacros = null;
+
          int index = 0;
          while (index < input.Length) {
             bool foundMatch = false;
+
+            // check macros
+            if (input[index] == '[' && textMacros!=null) {
+               var closeMacro = input.Substring(index).IndexOf(']') + index;
+               if (closeMacro > index) {
+                  var candidate = input.Substring(index, closeMacro + 1 - index);
+                  if (textMacros.TryGetValue(candidate, out var bytes)) {
+                     index += candidate.Length;
+                     result.AddRange(bytes);
+                     continue;
+                  }
+               }
+            }
+
+            // check characters and escape codes
             for (int i = 0; i < 0x100; i++) {
                if (PCS[i] == null) continue;
                var checkCharacter = PCS[i];
@@ -183,12 +335,19 @@ namespace HavenSoft.HexManiac.Core.Models {
          return -1;
       }
 
+      private static string FindMacro(IReadOnlyDictionary<string, byte[]> macros, IReadOnlyList<byte> data, int index) {
+         foreach (var kvp in macros) {
+            bool matches = true;
+            for (int i = 0; i < kvp.Value.Length && matches; i++) {
+               matches = data.Count > index + i && kvp.Value[i] == data[index + i];
+            }
+            if (matches) return kvp.Key;
+         }
+         return null;
+      }
+
       private static int GetLengthForControlCode(byte code) {
-         if (code == 0x04) return 4; // (text, shadow, highlight) -> 3 params
-         if (code == 0x09) return 1; // pause : no variables
-         if (code == 0x0A) return 1; // wait for sound effect
-         if (code == 0x0B) return 3; // play background music : 1 variable, but it takes 2 bytes
-         if (code == 0x10) return 3; // play sound effects : 2 variables
+         if (ControlCodeLengths.TryGetValue(code, out var length)) return length;
          if (code > 0x14) return 1;  // single-byte functions : no variables
          return 2;                   // most functions have a 1 byte code and a 1 byte variable
       }

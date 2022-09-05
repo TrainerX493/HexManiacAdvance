@@ -66,15 +66,18 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             if (item.Type == ElementContentType.Unknown) viewModel = new FieldArrayElementViewModel(viewPort, item.Name, itemAddress, item.Length, HexFieldStratgy.Instance);
             else if (item.Type == ElementContentType.PCS) viewModel = new FieldArrayElementViewModel(viewPort, item.Name, itemAddress, item.Length, new TextFieldStrategy());
             else if (item.Type == ElementContentType.Pointer) viewModel = new FieldArrayElementViewModel(viewPort, item.Name, itemAddress, item.Length, new AddressFieldStratgy());
-            else if (item.Type == ElementContentType.BitArray) viewModel = new BitListArrayElementViewModel(selection, viewPort.ChangeHistory, viewPort.Model, item.Name, itemAddress);
+            else if (item.Type == ElementContentType.BitArray) viewModel = new BitListArrayElementViewModel(viewPort, item.Name, itemAddress);
             else if (item.Type == ElementContentType.Integer) {
                if (item is ArrayRunEnumSegment enumSegment) {
                   viewModel = new ComboBoxArrayElementViewModel(viewPort, selection, item.Name, itemAddress, item.Length);
                   var anchor = viewPort.Model.GetAnchorFromAddress(-1, table.Start);
                   var enumSourceTableStart = viewPort.Model.GetAddressFromAnchor(new NoDataChangeDeltaModel(), -1, enumSegment.EnumName);
-                  if (!string.IsNullOrEmpty(anchor) && viewPort.Model.GetDependantArrays(anchor).Count() == 1 && enumSourceTableStart >= 0) {
-                     Add(viewModel);
-                     viewModel = new BitListArrayElementViewModel(selection, viewPort.ChangeHistory, viewPort.Model, item.Name, itemAddress);
+                  if (!string.IsNullOrEmpty(anchor)) {
+                     var dependentArrays = viewPort.Model.GetDependantArrays(anchor).ToList();
+                     if (dependentArrays.Count == 1 && enumSourceTableStart >= 0 && dependentArrays[0].ElementContent[0] is ArrayRunBitArraySegment) {
+                        Add(viewModel);
+                        viewModel = new BitListArrayElementViewModel(viewPort, item.Name, itemAddress);
+                     }
                   }
                } else if (item is ArrayRunTupleSegment tupleItem) {
                   viewModel = new TupleArrayElementViewModel(viewPort, tupleItem, itemAddress);

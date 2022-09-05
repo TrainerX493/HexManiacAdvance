@@ -257,7 +257,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                // find all tilemaps that use this tileset and update them
                var tilemaps = tileset.FindDependentTilemaps(model); // TODO working here
                foreach (var tilemap in tilemaps) {
-                  var pixels = tilemap.GetPixels(model, 0);
+                  var pixels = tilemap.GetPixels(model, 0, -1);
                   for (int y = 0; y < pixels.GetLength(1); y++) {
                      for (int x = 0; x < pixels.GetLength(0); x++) {
                         int tilesetPalettePage = source.PaletteFormat.InitialBlankPages;
@@ -285,7 +285,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                // get/set the sprite data for each relavent page
                for (int page = 0; page < newSprite.Pages; page++) {
                   if (hasMultiplePages) page += this.page;
-                  var pixels = newSprite.GetPixels(model, page % newSprite.Pages);
+                  var pixels = newSprite.GetPixels(model, page % newSprite.Pages, -1);
                   for (int y = 0; y < pixels.GetLength(1); y++) {
                      for (int x = 0; x < pixels.GetLength(0); x++) {
                         var pixelPage = pixels[x, y] / oldToNew.Length;
@@ -377,6 +377,17 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public static IReadOnlyList<short> ParseColor(string stream) {
          var results = new List<short>();
          var parts = stream.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+         if (parts.Length == 64 && 16.Range().All(k => parts[k * 4 + 3] == "00") && 64.Range().All(k => parts[k].Length == 2)) {
+            // .pal paste
+            for (int i = 0; i < 16; i++) {
+               if (!byte.TryParse(parts[i * 4 + 0], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var blue)) return null;
+               if (!byte.TryParse(parts[i * 4 + 1], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var green)) return null;
+               if (!byte.TryParse(parts[i * 4 + 2], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var red)) return null;
+               results.Add(UncompressedPaletteColor.Pack(red >> 3, green >> 3, blue >> 3));
+            }
+            return results;
+         }
+
          for (int i = 0; i < parts.Length; i++) {
             if (parts[i].Contains(":")) {
                var channels = parts[i].Split(':');
@@ -390,7 +401,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                if (!byte.TryParse(parts[i + 0], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var low)) return null;
                if (!byte.TryParse(parts[i + 1], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var high)) return null;
                i += 1;
-               results.Add((byte)((high << 8) | low));
+               results.Add((short)((high << 8) | low));
             } else {
                return null;
             }
@@ -467,7 +478,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                }
                foreach (var sprite in items) {
                   for (int j = 0; j < sprite.Pages; j++) {
-                     foreach (int pixelIndex in sprite.GetPixels(model, j)) {
+                     foreach (int pixelIndex in sprite.GetPixels(model, j, -1)) {
                         if (pixelIndex == pageOffset + i) count += 1;
                      }
                   }
@@ -489,7 +500,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             foreach (var sprite in items) {
                var newSprite = sprite;
                for (int j = 0; j < newSprite.Pages; j++) {
-                  var pixels = newSprite.GetPixels(model, j);
+                  var pixels = newSprite.GetPixels(model, j, -1);
                   for (int x = 0; x < pixels.GetLength(0); x++) {
                      for (int y = 0; y < pixels.GetLength(1); y++) {
                         if (pixels[x, y] == elementMergeIndex + pageOffset) pixels[x, y] = elementKeepIndex + pageOffset;

@@ -20,6 +20,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using FolderBrowserDialog = System.Windows.Forms.FolderBrowserDialog;
 
 namespace HavenSoft.HexManiac.WPF.Implementations {
    public class WindowsFileSystem : IFileSystem, IWorkDispatcher {
@@ -41,7 +42,21 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
                return string.Empty;
             }
          }
-         set => Clipboard.SetDataObject(value, true);
+         set {
+            try {
+               Clipboard.SetDataObject(value, true);
+            } catch (COMException) {
+               try {
+                  // try again, but don't try to persist the value after app exit
+                  Clipboard.SetDataObject(value);
+                  ShowCustomMessageBox("Copied text to clipboard.", false);
+               } catch (COMException) {
+                  // something went wrong... we couldn't copy
+                  var window = (MainWindow)Application.Current.MainWindow;
+                  window.ViewModel.ErrorMessage = "Could not copy";
+               }
+            }
+         }
       }
 
       public (short[] image, int width) CopyImage {
@@ -66,6 +81,14 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
          var result = dialog.ShowDialog();
          if (result != true) return null;
          return LoadFile(dialog.FileName);
+      }
+
+      public string OpenFolder() {
+         using (var dialog = new FolderBrowserDialog()) {
+            var result = dialog.ShowDialog();
+            if (result != System.Windows.Forms.DialogResult.OK) return null;
+            return dialog.SelectedPath;
+         }
       }
 
       public bool Exists(string fileName) => File.Exists(fileName);
@@ -142,6 +165,10 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
          watchers[fileName].RemoveAt(index);
       }
 
+      public void BlockOnUIWork(Action action) {
+         dispatcher.Invoke(action, DispatcherPriority.Normal);
+      }
+
       public Task DispatchWork(Action action) {
          return Task.Run(() => {
             try {
@@ -195,7 +222,10 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
 
       public bool SaveMetadata(string originalFileName, string[] metadata) {
          if (metadata == null) return true; // nothing to save
-         var metadataName = Path.ChangeExtension(originalFileName, ".toml");
+         var metadataName = originalFileName + ".toml";
+         if (originalFileName.ToLower().EndsWith(".gba")) {
+            metadataName = Path.ChangeExtension(originalFileName, ".toml");
+         }
          int tryCount = 0;
          while (tryCount < 5) {
             try {
@@ -218,14 +248,13 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
          var displayName = string.Empty;
          if (!string.IsNullOrEmpty(file.Name)) displayName = Environment.NewLine + file.Name;
          var result = ShowCustomMessageBox($"Would you like to save{displayName}?");
-         if (result == MessageBoxResult.Cancel) return null;
-         if (result == MessageBoxResult.No) return false;
+         if (result != true) return result;
          if (displayName == string.Empty) displayName = RequestNewName(displayName);
          if (string.IsNullOrEmpty(displayName)) return null;
          return Save(new LoadedFile(displayName.Trim(), file.Contents));
       }
 
-      public MessageBoxResult ShowCustomMessageBox(string message, bool showYesNoCancel = true, params ProcessModel[] links) {
+      public bool? ShowCustomMessageBox(string message, bool showYesNoCancel = true, params ProcessModel[] links) {
          var choices = showYesNoCancel ? new StackPanel {
             HorizontalAlignment = HorizontalAlignment.Right,
             Orientation = Orientation.Horizontal,
@@ -291,7 +320,9 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
                            Inlines = { new Run(link.DisplayText) },
                         }.Fluent(hyperlink => hyperlink.Click += (sender, e) => {
                            try {
-                              if (!link.Content.StartsWith("!")) {
+                              if (link.Content.StartsWith("~")) {
+                                 CopyText = link.Content.Substring(1);
+                              } else if (!link.Content.StartsWith("!")) {
                                  NativeProcess.Start(link.Content);
                               } else {
                                  ShowFileProperties(link.Content.Substring(1));
@@ -311,7 +342,14 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
 
          passingResult = MessageBoxResult.Cancel;
          window.ShowDialog();
-         return passingResult;
+
+         return passingResult switch {
+            MessageBoxResult.No => false,
+            MessageBoxResult.OK => true,
+            MessageBoxResult.Yes => true,
+            MessageBoxResult.Cancel => null,
+            _ => throw new NotSupportedException()
+         };
       }
 
       private MessageBoxResult passingResult = MessageBoxResult.Cancel;
@@ -469,11 +507,13 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
          return (data, frame.PixelWidth);
       }
 
-      public void SaveImage(short[] image, int width) {
-         var dialog = new SaveFileDialog { Filter = CreateFilterFromOptions("Image Files", "png") };
-         var result = dialog.ShowDialog();
-         if (result != true) return;
-         var fileName = dialog.FileName;
+      public void SaveImage(short[] image, int width, string fileName = null) {
+         if (fileName == null) {
+            var dialog = new SaveFileDialog { Filter = CreateFilterFromOptions("Image Files", "png") };
+            var result = dialog.ShowDialog();
+            if (result != true) return;
+            fileName = dialog.FileName;
+         }
 
          var frame = EncodeImage(image, width);
 
@@ -567,6 +607,4 @@ namespace HavenSoft.HexManiac.WPF.Implementations {
       }
       #endregion
    }
-
-   public record ProcessModel(string DisplayText, string Content);
 }

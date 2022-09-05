@@ -2,10 +2,12 @@
 using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Factory;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Windows.Input;
 
@@ -22,13 +24,18 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       public bool HasMultiplePalettes => MaxPalette > 0;
       private int currentPalette;
-      public int CurrentPalette { get => currentPalette; set => Set(ref currentPalette, value, arg => {
-         UpdateTiles(CurrentPage);
-         foreach (var child in ViewPort.Tools.TableTool.Children) {
-            if (child is SpriteElementViewModel sevm && sevm != this && sevm.MaxPalette == MaxPalette) sevm.CurrentPalette = CurrentPalette;
+      public int CurrentPalette {
+         get => currentPalette;
+         set {
+            Set(ref currentPalette, value, arg => {
+               UpdateTiles(CurrentPage);
+               foreach (var child in ViewPort.Tools.TableTool.Children) {
+                  if (child is SpriteElementViewModel sevm && sevm != this && sevm.MaxPalette == MaxPalette) sevm.CurrentPalette = CurrentPalette;
+               }
+               UpdatePaletteSelection();
+            });
          }
-         UpdatePaletteSelection();
-      }); }
+      }
       public int MaxPalette { get; private set; }
 
       public ISpriteRun GetRun(int start = int.MinValue) {
@@ -63,12 +70,15 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       #region Import / Export Commands
 
-      private StubCommand importImage, exportImage, exportImages;
+      private StubCommand importImage, exportImage, exportImages, exportAllImages;
 
-      public bool CanExportMany => Pages > 1 && ExportPair.CanExecute(default);
+      public bool CanExportMany => (Pages > 1 && ExportPair.CanExecute(default)) || CanExecuteExportAllImages(default);
+      public bool CanExportAll => CanExecuteExportAllImages(default);
+      public bool CanExportManyOrAll => CanExportMany || CanExportAll;
       public ICommand ImportPair => StubCommand<IFileSystem>(ref importImage, ExecuteImportImage, CanExecuteImportImage);
       public ICommand ExportPair => StubCommand<IFileSystem>(ref exportImage, ExecuteExportImage, CanExecuteExportImage);
       public ICommand ExportMany => StubCommand<IFileSystem>(ref exportImages, ExecuteExportImages, CanExecuteExportImages);
+      public ICommand ExportAll => StubCommand<IFileSystem>(ref exportAllImages, ExecuteExportAllImages, CanExecuteExportAllImages);
 
       private bool CanExecuteImportImage(object arg) {
          var destination = ViewPort.Model.ReadPointer(Start);
@@ -85,10 +95,38 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          return true;
       }
       private bool CanExecuteExportImages(object arg) => CanExportMany;
+      private bool CanExecuteExportAllImages(object arg) {
+         return Model.GetNextRun(Start) is ITableRun table && table.ElementCount > 1;
+      }
 
       private void ExecuteImportImage(IFileSystem fs) => ExecuteSpriteToolCommand(fs, ViewPort.Tools.SpriteTool.ImportPair);
       private void ExecuteExportImage(IFileSystem fs) => ExecuteSpriteToolCommand(fs, ViewPort.Tools.SpriteTool.ExportPair);
       private void ExecuteExportImages(IFileSystem fs) => ExecuteSpriteToolCommand(fs, ViewPort.Tools.SpriteTool.ExportMany);
+
+      private void ExecuteExportAllImages(IFileSystem fs) {
+         var folder = fs.OpenFolder();
+         if (folder == null) return;
+         if (Model.GetNextRun(Start) is not ITableRun run) return;
+         var tableName = Model.GetAnchorFromAddress(-1, run.Start);
+         var offset = run.ConvertByteOffsetToArrayOffset(Start);
+         for (int i = 0; i < run.ElementCount; i++) {
+            var start = run.Start + run.ElementLength * i + run.ElementContent.Take(offset.SegmentIndex).Sum(seg => seg.Length);
+            if (GetRun(start) is ISpriteRun sRun) {
+               var palettes = sRun.FindRelatedPalettes(Model, start, format.PaletteHint).ToList();
+               var palette = palettes.FirstOrDefault();
+               if (palettes.Count > 1 && palettes.Count > CurrentPalette) palette = palettes[CurrentPalette];
+               var pixels = ReadonlyPixelViewModel.Create(Model, sRun, palette);
+               var name = run.ElementNames.Count > i ? run.ElementNames[i] : string.Empty;
+               foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+               name = $"{folder}/{tableName}_{i}_{name}.png";
+               if (!fs.Exists(name)) {
+                  fs.SaveImage(pixels.PixelData, pixels.PixelWidth, name);
+               } else {
+                  ErrorText = $"Could not export image {i} ({run.ElementNames[i]}).{Environment.NewLine}Another image with that named exists.";
+               }
+            }
+         }
+      }
 
       private void ExecuteSpriteToolCommand(IFileSystem fs, ICommand command) {
          var spriteTool = ViewPort.Tools.SpriteTool;
@@ -100,7 +138,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             spriteTool.SpritePage = CurrentPage;
             if (palette != null) spriteTool.PaletteAddress = palette.Start;
             spriteTool.PalettePage = CurrentPalette;
-            if (palettes.Count > 0 && palettes[CurrentPalette].Pages == sRun.Pages) spriteTool.PalettePage = CurrentPage;
+            if (palettes.Count > CurrentPalette && palettes[CurrentPalette].Pages == sRun.Pages) spriteTool.PalettePage = CurrentPage;
             command.Execute(fs);
          }
       }
@@ -152,9 +190,12 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          UpdateAvailablePalettes(that.Start);
          Start = other.Start;
          NotifyPropertyChanged(nameof(CanExportMany));
+         NotifyPropertyChanged(nameof(CanExportAll));
+         NotifyPropertyChanged(nameof(CanExportManyOrAll));
          importImage.RaiseCanExecuteChanged();
          exportImage.RaiseCanExecuteChanged();
          exportImages.RaiseCanExecuteChanged();
+         ErrorText = string.Empty;
          return true;
       }
 
@@ -186,7 +227,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private IReadOnlyList<short> lastColors;
       private void UpdateTiles(int start, int page, bool exitPaletteSearchEarly) {
          var run = GetRun();
-         var pixels = run.GetPixels(ViewPort.Model, page);
+
+         var tableIndex = -1;
+         if (Model.GetNextRun(Start) is ITableRun tableRun) {
+            tableIndex = tableRun.ConvertByteOffsetToArrayOffset(Start).ElementIndex;
+         }
+
+         var pixels = run.GetPixels(ViewPort.Model, page, tableIndex);
          var palette = GetDesiredPalette(start, page, exitPaletteSearchEarly, out var paletteFormat);
          if (pixels == lastPixels && palette == lastColors) return;
          lastPixels = pixels;
@@ -194,7 +241,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (!(run is LzTilemapRun)) paletteFormat = default;
 
          PixelData = SpriteTool.Render(pixels, palette, paletteFormat.InitialBlankPages, CurrentPage);
-         
+
          NotifyPropertyChanged(nameof(PixelWidth));
          NotifyPropertyChanged(nameof(PixelHeight));
          NotifyPropertyChanged(nameof(PixelData));

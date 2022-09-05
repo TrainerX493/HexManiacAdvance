@@ -128,14 +128,11 @@ namespace HavenSoft.HexManiac.Tests {
 
       [Fact]
       public void SelectingAPointerAddressInStringToolDisablesTheTool() {
-         var token = new ModelDelta();
-         var model = new PokemonModel(new byte[0x200]);
-         model.WritePointer(token, 16, 100);
-         model.ObserveRunWritten(token, new PointerRun(16));
+         Model.WritePointer(Token, 16, 100);
+         Model.ObserveRunWritten(Token, new PointerRun(16));
          var tool = new PCSTool(
-            model,
-            new Selection(new ScrollRegion { Width = 0x10, Height = 0x10 }, model, default),
-            new ChangeHistory<ModelDelta>(dm => dm),
+            ViewPort,
+            ViewPort.ChangeHistory,
             null) {
             Address = 18
          };
@@ -556,6 +553,28 @@ namespace HavenSoft.HexManiac.Tests {
       }
 
       [Fact]
+      public void ThumbCode_InlineLoadLastSection_Compiles() {
+         var model = new PokemonModel(new byte[0x200]);
+         var result = parser.Compile(model, 0x100,
+            "    push {lr}",
+            "    ldr  r0, =1",
+            "    pop  {pc}"
+            // implicit nop for alignment
+            // implicit .word 0x01
+         ).ToArray();
+
+         var expected = new byte[] {
+            0x00, 0xB5,
+            0x01, 0x48,
+            0x00, 0xBD,
+            0, 0,              // nop
+            1, 0, 0, 0,        // inserted word
+         };
+
+         Assert.Equal(expected, result);
+      }
+
+      [Fact]
       public void ThumbCode_InlinePointerLoad_Compiles() {
          Model.ObserveAnchorWritten(new ModelDelta(), "destination", new NoInfoRun(0x20));
          var result = parser.Compile(new ModelDelta(), Model, 0x100,
@@ -850,6 +869,87 @@ namespace HavenSoft.HexManiac.Tests {
          ViewPort.Tools.TableTool.Next.Execute();
 
          Assert.Equal(1, counter);
+      }
+
+      /// <summary>
+      /// Because of the way bx instructions work, it's expected for pointer to point to the address of a thumb routine _plus one_.
+      /// Make sure that editing the thumb routine doesn't destroy the pointer format.
+      /// </summary>
+      [Fact]
+      public void PointerToThumbRoutinePlusOne_EditThumb_StillPointer() {
+         ViewPort.Edit("@100 <011> ");
+
+         ViewPort.Edit(@"@10 .thumb
+            push {lr}
+            pop  {pc}
+         .end");
+
+         Assert.IsType<PointerRun>(Model.GetNextRun(0x100));
+      }
+
+      [Fact]
+      public void LdrToAnchorPlusOneOutsideBraces_Compile_PointerIsCorrect() {
+         Model.ObserveAnchorWritten(Token, "anchor", new NoInfoRun(0x100));
+
+         ViewPort.Tools.CodeTool.Parser.Compile(Token, Model, 0, "ldr r0, =<anchor>+1", "bx r0");
+
+         Assert.Equal(0x101, Model.ReadPointer(4));
+      }
+
+      [Fact]
+      public void LdrToAnchorPlusOneInsideBraces_Compile_PointerIsCorrect() {
+         Model.ObserveAnchorWritten(Token, "anchor", new NoInfoRun(0x100));
+
+         ViewPort.Tools.CodeTool.Parser.Compile(Token, Model, 0, "ldr r0, =<anchor+1>", "bx r0");
+
+         Assert.Equal(0x101, Model.ReadPointer(4));
+      }
+
+      [Theory]
+      [InlineData("BPRE0", "updatemoney 1 1 1\r\nend", "95 01 01 01 02")]
+      [InlineData("AXPE0", "updatemoney 1 1\r\nend", "95 01 01 02")]
+      public void ScriptWithGameSpecificCommand_Compile_Works(string gameCode, string script, string bytes) {
+         SetGameCode(gameCode);
+         var parser = ViewPort.Tools.CodeTool.ScriptParser;
+
+         var compiled = parser.Compile(Token, Model, 0, ref script, out var _);
+
+         Assert.Equal(bytes.ToByteArray(), compiled);
+      }
+
+      [Theory]
+      [InlineData("BPRE0", "updatemoney 1 1 1\r\nend", "95 01 01 01 02")]
+      [InlineData("AXPE0", "updatemoney 1 1\r\nend", "95 01 01 02")]
+      public void ScriptWithGameSpecificCommand_Decompile_Works(string gameCode, string script, string bytes) {
+         SetGameCode(gameCode);
+         var code = bytes.ToByteArray();
+         Token.ChangeData(Model, 0, code);
+
+         var text = ViewPort.Tools.CodeTool.ScriptParser.Parse(Model, 0, code.Length);
+
+         var expected = script.SplitLines().TrimAll().ToArray();
+         var actual = text.SplitLines().TrimAll().ToArray();
+         Assert.Equal(expected, actual);
+      }
+
+      [Theory]
+      [InlineData("10+10", "32")]
+      [InlineData("10-8", "8")]
+      [InlineData("18-8+10", "32")]
+      public void HexConverter_HexOperators_DoMath(string input, string output) {
+         var editor = new EditorViewModel(FileSystem, InstantDispatch.Instance, false);
+         editor.HexText = input;
+         Assert.Equal(output, editor.DecText);
+      }
+
+      [Theory]
+      [InlineData("10+10", "14")]
+      [InlineData("10-8", "2")]
+      [InlineData("18-8+10", "14")]
+      public void HexConverter_DecimalOperators_DoMath(string input, string output) {
+         var editor = new EditorViewModel(FileSystem, InstantDispatch.Instance, false);
+         editor.DecText = input;
+         Assert.Equal(output, editor.HexText);
       }
    }
 }

@@ -219,7 +219,7 @@ namespace HavenSoft.HexManiac.Tests {
          Model1[1] = 1;
          ViewModel0.DiffRight.Execute();
 
-         var items = ViewModel2.GetContextMenuItems(new Point(0, 0));
+         var items = ViewModel2.GetContextMenuItems(new Point(0, 0), default);
          var itemText = items.Select(item => item.Text).ToList();
 
          Assert.Single(itemText, "Copy Address");
@@ -329,6 +329,17 @@ namespace HavenSoft.HexManiac.Tests {
 
          Assert.Equal("C000", result.ToString("X4"));
          Assert.Equal(3, start);
+      }
+
+      [Fact]
+      public void SelectLeft_CloseRight_CannotDiffRight() {
+         editor.SelectedIndex = 0;
+
+         var view = new StubView(editor);
+         ViewModel1.Close.Execute();
+
+         Assert.False(editor.DiffRight.CanExecute(default));
+         Assert.Contains(nameof(editor.DiffRight), view.CommandCanExecuteChangedNotifications);
       }
 
       // TODO Can I use this pointer information to then show diffs between dynamic addresses?

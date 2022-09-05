@@ -984,6 +984,186 @@ namespace HavenSoft.HexManiac.Tests {
          Assert.Equal(2, relatedArrays.Count);
       }
 
+      [Fact]
+      public void AnchorFormat_TableWithNoContent_DoesNotParse() {
+         var error = ArrayRun.TryParse(Model, "[]3", 0, SortedSpan<int>.None, out var _);
+         Assert.True(error.HasError);
+      }
+
+      [Fact]
+      public void AnchorFormat_TableStreamWithNoContent_DoesNotParse() {
+         var error = ArrayRun.TryParse(Model, "[]!00", 0, SortedSpan<int>.None, out var table);
+         Assert.True(error.HasError);
+      }
+
+      [Fact]
+      public void TableContent_CopyNotWholeTable_DoNotIncludeAnchorContentInClipboard() {
+         var nl = Environment.NewLine;
+         ViewPort.Edit("^table[a: b:]3 1 2 3 4 5 6 ");
+
+         ViewPort.SelectionStart = new(0, 0);
+         ViewPort.SelectionEnd = new(7, 0);
+         ViewPort.Copy.Execute(FileSystem);
+
+         Assert.Equal($"1, 2{nl}+3, 4{nl}", FileSystem.CopyText.value);
+      }
+
+      [Fact]
+      public void NameWithDash_Goto_Goto() {
+         CreateTextTable("table", 0x100, "some", "option", "ho-oh", "steve");
+
+         ViewPort.Goto.Execute("ho-oh");
+
+         Assert.Equal(2, ViewPort.Tools.TableTool.CurrentElementSelector.SelectedIndex);
+      }
+
+      [Fact]
+      public void OptionsWithPercentSign_EnterOption_ValueChanges() {
+         Model.SetList(Token, "gender", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%");
+
+         ViewPort.Edit("^table[option:gender]2 30% ");
+
+         Assert.Equal(2, Model[0]);
+      }
+
+      [Fact]
+      public void OptionsWithAmpersand_EnterOption_ValueChanges() {
+         Model.SetList(Token, "gender", "1&2", "3&4", "5&6", "7&8");
+
+         ViewPort.Edit("^table[option:gender]2 5&6 ");
+
+         Assert.Equal(2, Model[0]);
+      }
+
+      [Fact]
+      public void TableWithTableStreamChild_IncreaseLengthCausesRepoint_NoAssert() {
+         SetFullModel(0xFF);
+         ViewPort.Edit("@100 <180> <1C0> DEAD @00 <100> 02 @00 ^table[child<[text<\"\">]/count> count.]1 ");
+
+         ViewPort.Edit("@04 3 ");
+
+         Model.ResolveConflicts();
+      }
+
+      /// <summary>
+      /// Cloning a TableStreamRun should keep the same length as the parent, even in cases where that length is 'wrong'
+      /// due to the underlying rom data being different from when the TableStreamRun was created.
+      /// </summary>
+      [Fact]
+      public void TableStreamRun_Clone_SameLength() {
+         SetFullModel(0xFF);
+         ViewPort.Edit("<100> 01 @00 ^parent[child<[a.]/count> count.]1 ");
+         Model.RawData[4] = 2;
+
+         var childTable = (ITableRun)Model.GetNextRun(0x100);
+         var clone = (ITableRun)childTable.Duplicate(0x100, childTable.PointerSources);
+
+         Assert.Equal(childTable.ElementCount, clone.ElementCount);
+      }
+
+      [Fact]
+      public void SingleTableMode_AppendMoveTableStream_SelectionFollowsTable() {
+         SetFullModel(0xFF);
+         ViewPort.AllowSingleTableMode = true;
+         ViewPort.FreeSpaceStart = 0x100;
+         ViewPort.Edit("01 02 03 FF DEAD @00 ^table[a.]!FF ");
+
+         ViewPort.Edit("@03 +");
+
+         Assert.Single(Messages);
+         Assert.InRange(ViewPort.DataOffset, 0x80, 0x200);
+      }
+
+      [Fact]
+      public void SingleTableMode_ExtendTableNoRepoint_VisibleSpaceExpands() {
+         SetFullModel(0xFF);
+         ViewPort.AllowSingleTableMode = true;
+         ViewPort.Edit("01 02 03 @00 ^table[a.]!FF ");
+
+         ViewPort.Edit("@03 +");
+
+         Assert.IsType<EndStream>(ViewPort[1, 0].Format);
+      }
+
+      [Fact]
+      public void TwoTablesWithLengthFromConstant_ExpandOneTable_BothTablesAndConstantChanged() {
+         SetFullModel(0xFF);
+         Model[0x20] = 2;
+         ViewPort.Edit("@20 .constant.value ");
+         ViewPort.Edit("@00 ^table1[a.]constant.value ");
+         ViewPort.Edit("@10 ^table2[b.]constant.value ");
+
+         ViewPort.Edit("@02 +");
+
+         Assert.Equal(3, Model.GetTable("table1").ElementCount);
+         Assert.Equal(3, Model.GetTable("table2").ElementCount);
+         Assert.Equal(3, Model[0x20]);
+      }
+
+      [Fact]
+      public void TwoTablesWithLengthFromContstant_ExpandConstant_BothTablesAndConstantChanged() {
+         SetFullModel(0xFF);
+         Model[0x20] = 2;
+         ViewPort.Edit("@20 .constant.value ");
+         ViewPort.Edit("@00 ^table1[a.]constant.value ");
+         ViewPort.Edit("@10 ^table2[b.]constant.value ");
+
+         ViewPort.Edit("@20 3 ");
+
+         Assert.Equal(3, Model.GetTable("table1").ElementCount);
+         Assert.Equal(3, Model.GetTable("table2").ElementCount);
+         Assert.Equal(3, Model[0x20]);
+      }
+
+      [Fact]
+      public void TableWithSplitterSegment_Copy_SplitterSegmentNotCopied() {
+         ViewPort.Edit("^table[a:: b:: | c:: d::]3 ");
+         ViewPort.SelectionStart = new(4, 1);
+         ViewPort.SelectionEnd = new(11, 1);
+
+         ViewPort.Copy.Execute(FileSystem);
+
+         Assert.Equal("0, 0,", FileSystem.CopyText.value.Trim());
+      }
+
+      [Fact]
+      public void TableWithHexLength_Parse_NoError() {
+         ViewPort.Edit("^table[a:: b::]0x10 ");
+         Assert.Equal(8 * 16, Model.GetNextRun(0).Length);
+      }
+
+      [Fact]
+      public void TableWithHexEnum_Parse_NoErrors() {
+         ViewPort.Edit("^table[a::0x10 b::]10 ");
+         var table = Model.GetTable("table");
+         var seg = (ArrayRunEnumSegment)table.ElementContent[0];
+         Assert.Equal(16, seg.GetOptions(Model).Count());
+      }
+
+      [Fact]
+      public void Table_UpdateLastElement_TableToolUpdates() {
+         ViewPort.Edit("^table[a: b:]4 ");
+
+         ViewPort.Goto.Execute(0xF);
+         ViewPort.Edit("10 ");
+
+         var field = (FieldArrayElementViewModel)ViewPort.Tools.TableTool.Children.Last();
+         Assert.Equal("10", field.Content);
+      }
+
+      [Fact]
+      public void Table_PasteMultipleFieldsButNoSpaceAtEnd_LastFieldChanged() {
+         var editor = new EditorViewModel(FileSystem, InstantDispatch.Instance);
+         editor.Add(ViewPort);
+         ViewPort.IsFocused = true;
+         ViewPort.Edit("^table[a:: b:: c:: d::]4 ");
+
+         FileSystem.CopyText = "1 2 3 4";
+         editor.Paste.Execute();
+
+         Assert.Equal(4, Model.ReadMultiByteValue(12, 4));
+      }
+
       private void ArrangeTrainerPokemonTeamData(byte structType, byte pokemonCount, int trainerCount) {
          CreateTextTable(HardcodeTablesModel.PokemonNameTable, 0x180, "ABCDEFGHIJKLMNOP".Select(c => c.ToString()).ToArray());
          CreateTextTable(HardcodeTablesModel.MoveNamesTable, 0x1B0, "qrstuvwxyz".Select(c => c.ToString()).ToArray());

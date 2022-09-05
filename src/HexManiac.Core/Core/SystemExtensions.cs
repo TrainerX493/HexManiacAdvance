@@ -24,6 +24,12 @@ namespace HavenSoft.HexManiac.Core {
          return value;
       }
 
+      public static bool TryParseInt(this string str, out int result) {
+         if (str.StartsWith("0x") && int.TryParse(str.Substring(2), NumberStyles.HexNumber, CultureInfo.CurrentCulture, out result)) return true;
+         if (int.TryParse(str, out result)) return true;
+         return false;
+      }
+
       // allows writing 5.Range() instead of Enumerable.Range(0, 5)
       public static IEnumerable<int> Range(this int count) => Enumerable.Range(0, count);
 
@@ -35,6 +41,13 @@ namespace HavenSoft.HexManiac.Core {
          foreach (var element in list) {
             if (func(element)) break;
             yield return element;
+         }
+      }
+
+      public static IEnumerable<string> TrimAll(this IEnumerable<string> list) {
+         foreach (var item in list) {
+            var text = item?.Trim();
+            if (!string.IsNullOrEmpty(text)) yield return text;
          }
       }
 
@@ -106,17 +119,34 @@ namespace HavenSoft.HexManiac.Core {
 
       ////// these are some specific string extensions to deal with smart auto-complete //////
 
-      public static bool MatchesPartial(this string full, string partial, bool onlyCheckLettersAndDigits = false) {
-         full = full.Replace("é", "e");
-         foreach (var character in partial) {
-            if (onlyCheckLettersAndDigits && !char.IsLetterOrDigit(character)) continue;
-            var index = full.IndexOf(character.ToString(), StringComparison.CurrentCultureIgnoreCase);
-            if (index == -1) return false;
-            full = full.Substring(index + 1);
+      /// <summary>
+      /// Returns how many letters within partial can be matched into the full string
+      /// </summary>
+      public static int MatchLength(this string full, string partial, bool onlyCheckLettersAndDigits = false) {
+         int j = 0;
+         for (int i = 0; i < partial.Length; i++) {
+            if (onlyCheckLettersAndDigits && !char.IsLetterOrDigit(partial[i])) continue;
+            var testPartial = char.ToUpperInvariant(partial[i]);
+            if (partial[i] == 'é') testPartial = 'E';
+            if (partial[i] == 'á') testPartial = 'A';
+            while (j < full.Length) {
+               var testFull = char.ToUpperInvariant(full[j]);
+               if (full[j] == 'é') testFull = 'E';
+               if (full[j] == 'á') testFull = 'A';
+               j++;
+               if (testFull == testPartial) break;
+               if (j == full.Length) return i;
+            }
+            if (j == full.Length) return i + 1;
          }
 
-         return true;
+         return partial.Length;
       }
+
+      public static bool MatchesPartial(this string full, string partial, bool onlyCheckLettersAndDigits = false) {
+         return MatchLength(full, partial, onlyCheckLettersAndDigits) == partial.Length;
+      }
+
       public static int IndexOfPartial(this IReadOnlyList<string> names, string input) {
          // perfect match first
          var matchIndex = names.IndexOf(input);
@@ -157,9 +187,28 @@ namespace HavenSoft.HexManiac.Core {
 
       public static bool MatchesPartialWithReordering(this string full, string partial) {
          if (partial.Length == 0) return true;
+         if (partial.Contains('.')) return full.MatchesPartial(partial);
+         var parts = full.Split('.').ToList();
+         while (partial.Length > 0) {
+            if (parts.Count == 0) return false;
+            int bestMatchIndex = 0, bestMatchValue = parts[0].MatchLength(partial);
+            for (int i = 1; i < parts.Count; i++) {
+               var matchValue = parts[i].MatchLength(partial);
+               if (matchValue <= bestMatchValue) continue;
+               (bestMatchIndex, bestMatchValue) = (i, matchValue);
+            }
+            if (bestMatchValue == 0) return false;
+            parts.RemoveAt(bestMatchIndex);
+            partial = partial.Substring(bestMatchValue);
+         }
+         return true;
+      }
+
+      public static bool MatchesPartialWithReordering1(this string full, string partial) {
+         if (partial.Length == 0) return true;
          var parts = full.Split('.').Where(part => part.Any(partial.Contains)).ToList(); // only bother checking the parts where at least some letter matches
          foreach (var possibleOrder in EnumerateOrders(parts)) {
-            if (!MatchesPartial(possibleOrder, partial, true)) continue;
+            if (!possibleOrder.MatchesPartial(partial, true)) continue;
             return true;
          }
          return false;
@@ -169,8 +218,8 @@ namespace HavenSoft.HexManiac.Core {
       public static uint BitLetters(this string token) {
          var result = 0u;
          foreach (var letter in token) {
-            if (letter >= 'a' && letter <= 'z') result |= 1u << (letter - 'a');
-            if (letter >= 'A' && letter <= 'Z') result |= 1u << (letter - 'A');
+            if (letter >= 'a' && letter <= 'z') result |= 1u << letter - 'a';
+            if (letter >= 'A' && letter <= 'Z') result |= 1u << letter - 'A';
          }
          return result;
       }
@@ -186,14 +235,14 @@ namespace HavenSoft.HexManiac.Core {
             if (!input.Contains(".")) {
                if (options[i].MatchesPartialWithReordering(input)) result.Add(i);
             } else {
-               if (MatchesPartial(options[i], input)) result.Add(i);
+               if (options[i].MatchesPartial(input)) result.Add(i);
             }
          }
          return result;
       }
 
       public static byte[] ToByteArray(this string content) {
-         return content.Split(' ').Select(t => (byte)int.Parse(t, NumberStyles.HexNumber)).ToArray();
+         return content.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(t => (byte)int.Parse(t, NumberStyles.HexNumber)).ToArray();
       }
    }
 
@@ -245,7 +294,7 @@ namespace HavenSoft.HexManiac.Core {
          if (InnerDictionary != null) {
             return InnerDictionary.ContainsKey(key);
          }
-         return default(bool);
+         return default;
       }
 
       public virtual void Add(TKey key, TValue value) {
@@ -258,15 +307,15 @@ namespace HavenSoft.HexManiac.Core {
          if (InnerDictionary != null) {
             return InnerDictionary.Remove(key);
          }
-         return default(bool);
+         return default;
       }
 
       public virtual bool TryGetValue(TKey key, out TValue value) {
-         value = default(TValue);
+         value = default;
          if (InnerDictionary != null) {
             return InnerDictionary.TryGetValue(key, out value);
          }
-         return default(bool);
+         return default;
       }
 
       public virtual TValue this[TKey key] {
@@ -274,7 +323,7 @@ namespace HavenSoft.HexManiac.Core {
             if (InnerDictionary != null) {
                return InnerDictionary[key];
             }
-            return default(TValue);
+            return default;
          }
          set {
             if (InnerDictionary != null) {
@@ -287,7 +336,7 @@ namespace HavenSoft.HexManiac.Core {
             if (InnerDictionary != null) {
                return InnerDictionary.Keys;
             }
-            return default(ICollection<TKey>);
+            return default;
          }
       }
       public virtual ICollection<TValue> Values {
@@ -295,7 +344,7 @@ namespace HavenSoft.HexManiac.Core {
             if (InnerDictionary != null) {
                return InnerDictionary.Values;
             }
-            return default(ICollection<TValue>);
+            return default;
          }
       }
       public virtual void Add(KeyValuePair<TKey, TValue> item) {
@@ -314,7 +363,7 @@ namespace HavenSoft.HexManiac.Core {
          if (InnerDictionary != null) {
             return InnerDictionary.Contains(item);
          }
-         return default(bool);
+         return default;
       }
 
       public virtual void CopyTo(KeyValuePair<TKey, TValue>[] array, int arrayIndex) {
@@ -327,7 +376,7 @@ namespace HavenSoft.HexManiac.Core {
          if (InnerDictionary != null) {
             return InnerDictionary.Remove(item);
          }
-         return default(bool);
+         return default;
       }
 
       public virtual int Count {
@@ -335,7 +384,7 @@ namespace HavenSoft.HexManiac.Core {
             if (InnerDictionary != null) {
                return InnerDictionary.Count;
             }
-            return default(int);
+            return default;
          }
       }
       public virtual bool IsReadOnly {
@@ -343,17 +392,17 @@ namespace HavenSoft.HexManiac.Core {
             if (InnerDictionary != null) {
                return InnerDictionary.IsReadOnly;
             }
-            return default(bool);
+            return default;
          }
       }
       public virtual IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() {
          if (InnerDictionary != null) {
             return InnerDictionary.GetEnumerator();
          }
-         return default(IEnumerator<KeyValuePair<TKey, TValue>>);
+         return default;
       }
 
-      System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() {
+      IEnumerator IEnumerable.GetEnumerator() {
          return GetEnumerator();
       }
    }

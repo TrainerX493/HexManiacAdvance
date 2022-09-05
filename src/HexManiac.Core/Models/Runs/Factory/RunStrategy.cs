@@ -62,6 +62,8 @@ namespace HavenSoft.HexManiac.Core.Models.Runs.Factory {
             strategy = new PCSRunContentStrategy();
          } else if (format.StartsWith(AsciiRun.SharedFormatString)) {
             strategy = new AsciiRunContentStrategy();
+         } else if (format == BrailleRun.SharedFormatString) {
+            strategy = new BrailleRunContentStrategy();
          } else if (format == EggMoveRun.SharedFormatString) {
             strategy = new EggRunContentStrategy();
          } else if (format == PIERun.SharedFormatString) {
@@ -78,6 +80,8 @@ namespace HavenSoft.HexManiac.Core.Models.Runs.Factory {
             strategy = new OverworldSpriteListContentStrategy(this, format);
          } else if (format == TrainerPokemonTeamRun.SharedFormatString) {
             strategy = new TrainerPokemonTeamRunContentStrategy(showFullIVByteRange);
+         } else if (format == MapAnimationTilesRun.SharedFormatString) {
+            strategy = new MapAnimationTilesStrategy();
          } else if (LzSpriteRun.TryParseSpriteFormat(format, out var spriteFormat)) {
             if (allowStreamCompressionErrors) spriteFormat = new SpriteFormat(spriteFormat.BitsPerPixel, spriteFormat.TileWidth, spriteFormat.TileHeight, spriteFormat.PaletteHint, allowStreamCompressionErrors);
             strategy = new LzSpriteRunContentStrategy(spriteFormat);

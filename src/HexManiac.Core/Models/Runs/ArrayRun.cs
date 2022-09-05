@@ -102,7 +102,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          }
 
          if (currentSegment.Type == ElementContentType.PCS) {
-            return new PCS(offsets.SegmentStart, offsets.SegmentOffset, PCSString.Convert(data, offsets.SegmentStart, currentSegment.Length), PCSString.PCS[index]);
+            return new PCS(offsets.SegmentStart, offsets.SegmentOffset, data.TextConverter.Convert(data, offsets.SegmentStart, currentSegment.Length), PCSString.PCS[index]);
          }
 
          throw new NotImplementedException();
@@ -122,10 +122,12 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
                   text.Append($"{ViewPort.CommentStart}{names[i]}{ViewPort.CommentStart}, ");
                }
 
-               text.Append(segment.ToText(data, offset, deep).Trim());
-               if (j + 1 < self.ElementContent.Count) text.Append(", ");
-               offset += segment.Length;
-               length -= segment.Length;
+               if (segment.Length > 0) {
+                  text.Append(segment.ToText(data, offset, deep).Trim());
+                  if (j + 1 < self.ElementContent.Count) text.Append(", ");
+                  offset += segment.Length;
+                  length -= segment.Length;
+               }
             }
             if (i + 1 < self.ElementCount) text.Append(Environment.NewLine);
             offsets = new ArrayOffset(i + 1, 0, offset, 0);
@@ -172,6 +174,10 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
                   var newRun = tableStreamRun.UpdateFromParent(token, segmentIndex);
                   model.ObserveRunWritten(token, newRun);
                   if (newRun.Start != tableStreamRun.Start) info = new ErrorInfo($"Stream was automatically moved to {newRun.Start:X6}. Pointers were updated.", isWarningLevel: true);
+               } else if (run.Start == destination && run is MapAnimationTilesRun matRun) {
+                  var newRun = matRun.UpdateFromParent(token, segmentIndex, pointerSource, out bool childrenMoved);
+                  model.ObserveRunWritten(token, newRun);
+                  if (newRun.Start != matRun.Start) info = new ErrorInfo($"Tiles were automatically moved to {newRun.Start:X6}. Pointers were updated.", isWarningLevel: true);
                }
             }
             offset += segment.Length;
@@ -279,7 +285,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          var segOffset = self.ElementContent.Take(fieldIndex).Sum(seg => seg.Length);
          var textStart = self.Start + self.ElementLength * elementIndex + segOffset;
          var length = PCSString.ReadString(model.RawData, textStart, true, self.ElementContent[fieldIndex].Length);
-         return PCSString.Convert(model.RawData, textStart, length);
+         return model.TextConverter.Convert(model.RawData, textStart, length);
       }
 
       public static IEnumerable<(int, int)> Search(this ITableRun self, IDataModel model, string baseName, int index) {
@@ -495,7 +501,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             if (thisRun != null && thisRun.Start == Start) maxLength = ElementLength * thisRun.ElementCount;
             var byteLength = 0;
             var elementCount = 0;
-            while (Start + byteLength + ElementLength <= nextRun.Start && DataMatchesElementFormat(owner, Start + byteLength, ElementContent, elementCount, flags, nextRun)) {
+            while (Start + byteLength + ElementLength <= nextRun.Start && elementCount < 1000 && DataMatchesElementFormat(owner, Start + byteLength, ElementContent, elementCount, flags, nextRun)) {
                byteLength += ElementLength;
                elementCount++;
                if (elementCount == JunkLimit) flags |= FormatMatchFlags.AllowJunkAfterText;
@@ -505,7 +511,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             ParentOffset = ParentOffset.Default;
             ElementCount = Math.Max(1, elementCount); // if the user said there's a format here, then there is, even if the format it wrong.
             FormatString += ElementCount;
-         } else if (int.TryParse(length, out int result)) {
+         } else if (length.TryParseInt(out int result)) {
             // fixed length is easy
             LengthFromAnchor = string.Empty;
             ParentOffset = ParentOffset.Default;
@@ -535,18 +541,24 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       public static ErrorInfo TryParse(IDataModel data, string format, int start, SortedSpan<int> pointerSources, out ITableRun self) => TryParse(data, "UNUSED", format, start, pointerSources, out self);
 
       public static ErrorInfo TryParse(IDataModel data, string name, string format, int start, SortedSpan<int> pointerSources, out ITableRun self) {
+         return TryParse(data, name, format, start, pointerSources, null, out self);
+      }
+
+      public static ErrorInfo TryParse(IDataModel data, string name, string format, int start, SortedSpan<int> pointerSources, IReadOnlyList<ArrayRunElementSegment> sourceSegments, out ITableRun self) {
          self = null;
          var startArray = format.IndexOf(ArrayStart);
          var closeArray = format.LastIndexOf(ArrayEnd);
          if (startArray == -1 || startArray > closeArray) return new ErrorInfo($"Array Content must be wrapped in {ArrayStart}{ArrayEnd}.");
          var length = format.Substring(closeArray + 1);
 
-         var sourceSegments =
-            data.GetUnmappedSourcesToAnchor(name)
-            .Select(source => data.GetNextRun(source) as ITableRun)
-            .Where(tRun => tRun != null)
-            .Select(tRun => tRun.ElementContent)
-            .FirstOrDefault();
+         if (sourceSegments == null) {
+            sourceSegments =
+               data.GetUnmappedSourcesToAnchor(name)
+               .Select(source => data.GetNextRun(source) as ITableRun)
+               .Where(tRun => tRun != null)
+               .Select(tRun => tRun.ElementContent)
+               .FirstOrDefault();
+         }
 
          var (singleSegment, margins, tilemapLength) = ParseTilemapTable(data, format, length);
          if (singleSegment is ArrayRunElementSegment) {
@@ -574,7 +586,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             self = tableStreamRun;
          } else {
             // option 3: table parsing failed. Something weird in the length.
-            return new ErrorInfo($"Array length must be an anchor name or a number: {length}");
+            return new ErrorInfo($"Table format could not be parsed: {format}");
          }
 
          return ErrorInfo.NoError;
@@ -754,7 +766,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             if (currentCachedStartIndex != offsets.SegmentStart || currentCachedIndex > offsets.SegmentOffset) {
                currentCachedStartIndex = offsets.SegmentStart;
                currentCachedIndex = offsets.SegmentOffset;
-               cachedCurrentString = PCSString.Convert(data, offsets.SegmentStart, currentSegment.Length);
+               cachedCurrentString = data.TextConverter.Convert(data, offsets.SegmentStart, currentSegment.Length);
             }
 
             return PCSRun.CreatePCSFormat(data, offsets.SegmentStart, index, cachedCurrentString);
@@ -1260,7 +1272,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
                   format = ElementContentType.Integer;
                   segmentLength = 1;
                }
-               list.Add(new ArrayRunElementSegment(name, format, segmentLength));
+               list.Add(new ArrayRunElementSegment(name, format, segmentLength, model.TextConverter));
             }
          }
 

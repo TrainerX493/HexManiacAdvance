@@ -42,6 +42,8 @@ namespace HavenSoft.HexManiac.Core.Models {
       /// </returns>
       LoadedFile OpenFile(string extensionDescription = null, params string[] extensionOptions);
 
+      string OpenFolder();
+
       /// <returns>true if the file can be loaded</returns>
       bool Exists(string file);
 
@@ -103,14 +105,20 @@ namespace HavenSoft.HexManiac.Core.Models {
       /// Show the user a dialog so they can create a file.
       /// Save this 16bit (5r5g5b) array into that file.
       /// </summary>
-      void SaveImage(short[] image, int width);
+      void SaveImage(short[] image, int width, string fileName = null);
 
       int ShowOptions(string title, string prompt, IReadOnlyList<IReadOnlyList<object>> additionalDetails, params VisualOption[] options);
 
       string RequestText(string title, string prompt);
+
+      bool? ShowCustomMessageBox(string message, bool showYesNoCancel = true, params ProcessModel[] links);
    }
 
+   public record ProcessModel(string DisplayText, string Content);
+
    public interface IWorkDispatcher {
+      void BlockOnUIWork(Action action);
+
       /// <summary>
       /// If there's a long-running task, you can use this to break it up into chunks.
       /// This work will be run at a low priority next time the main thread is available.
@@ -126,6 +134,7 @@ namespace HavenSoft.HexManiac.Core.Models {
 
    public class InstantDispatch : IWorkDispatcher {
       public static IWorkDispatcher Instance { get; } = new InstantDispatch();
+      public void BlockOnUIWork(Action action) => action();
       public Task DispatchWork(Action action) { action?.Invoke(); return Task.CompletedTask; }
       public Task RunBackgroundWork(Action action) => DispatchWork(action);
    }
@@ -133,6 +142,8 @@ namespace HavenSoft.HexManiac.Core.Models {
    public class ControlledDispatch : IWorkDispatcher {
       private record Dispatch(Action Action, CancellationTokenSource CancellationSource);
       private readonly List<Dispatch> workloads = new();
+
+      public void BlockOnUIWork(Action action) => action();
 
       public Task DispatchWork(Action action) {
          var source = new CancellationTokenSource();

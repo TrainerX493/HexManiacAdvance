@@ -44,9 +44,9 @@
 13 setfarbyte bank.4 pointer<>               # stores the least-significant byte in the bank to a RAM address
 14 copyscriptbanks destination.4 source.4    # copies the value in source to destination
 15 copybyte destination<> source<>           # copies the value from the source RAM address to the destination RAM address
-16 setvar variable: value:                   # sets the given variable to the given value
-17 addvar variable: value:                   # variable+=value
-18 subvar variable: value:                   # variable-=value
+16 setvar variable:varmacros value:          # sets the given variable to the given value
+17 addvar variable:varmacros value:          # variable += value
+18 subvar variable:varmacros value:          # variable -= value
 19 copyvar destination: source:              # destination = source
 1A copyvarifnotzero destination: source:     # destination = source (or) destination = *source
                                              # (if source isn't a valid variable, it's read as a value)
@@ -56,18 +56,23 @@
 1E compareFarByteToBank pointer<> bank.4     # opposite of 1D
 1F compareFarByteToByte pointer<> value.     # compares the value at the RAM address to the value
 20 compareFarBytes a<> b<>                   # compares the two values at the two RAM addresses
-21 compare variable: value:
+21 compare variable:varmacros value:
 22 comparevars var1: var2:
 23 callasm code<>
-24 setcode pointer<>                         # puts a pointer to some assembly code at a specific place in RAM
-25 special function:                         # calls a piece of ASM code from a table located at <15FD60>
-26 special2 variable: function:              # calls a special and puts the ASM's return value in the variable you listed
+24 setcode pointer<>                                    # puts a pointer to some assembly code at a specific place in RAM
+
+[BPRE_BPGE] 25 special function:specialsFR              # calls a piece of ASM code from a table located at <15FD60>
+[AXVE_AXPE_BPEE] 25 special function:                   # calls a piece of ASM code from a table located at <15FD60>
+[BPRE_BPGE] 26 special2 variable: function:specialsFR   # calls a special and puts the ASM's return value in the variable you listed
+[AXVE_AXPE_BPEE] 26 special2 variable: function:        # calls a special and puts the ASM's return value in the variable you listed
+
 27 waitstate                                 # blocks the script until it gets unblocked by a command or some ASM code.
 28 pause time:                               # blocks the script for 'time' ticks
 29 setflag flag:                             # flag = 1
 2A clearflag flag:                           # flag = 0
 2B checkflag flag:                           # compares the flag to the value of 1. Used with !=(5) or =(1) compare values
-2C nop2C                                     # considered dangerous, probably does nothing
+[BPRE_BPGE] 2C nop2C                         # considered dangerous, probably does nothing
+[AXPE_AXVE_BPEE] 2C initclock hour: minute:
 2D checkdailyflags                           # nop in firered. Does some flag checking in R/S/E based on real-time-clock
 2E resetvars                                 # sets x8000, x8001, and x8002 to 0
 2F sound number:                             # 0000 mutes the music
@@ -149,7 +154,7 @@
 61 cleartrainerflag trainer:                 # set flag 0x500+trainer to 1. That trainer now counts as defeated.
 62 settrainerflag trainer:                   # set flag 0x500+trainer to 0. That trainer now counts as active.
 63 movesprite2 npc: x: y:                    # permanently move the npc to the x/y location
-64 moveoffscreen ncp:                        # moves the npc to just above the left-top corner of the screen
+64 moveoffscreen npc:                        # moves the npc to just above the left-top corner of the screen
 65 spritebehave npc: behavior.               # ???
 66 waitmsg                                   # block script execution until box/text is fully drawn
 67 preparemsg text<>                         # text can be a pointer to a text pointer, or just a pointer to text
@@ -195,7 +200,8 @@
 87 pokemart2 products<>                      # clone
 88 pokemart3 products<>                      # clone
 89 pokecasino index:
-8A setberrytree plantID. berryID. growth.    # in R/S/E, sets a specific berry-growing spot on the map with the specific berry and growth level.
+[BPRE_BPGE] 8A nop8A
+[AXPE_AXVE_BPEE] 8A setberrytree plantID. berryID. growth.    # sets a specific berry-growing spot on the map with the specific berry and growth level.
 8B choosecontextpkmn                         # in FireRed, 03000EA8 = '1'. In R/S/E, prompt for a pokemon to enter contest
 8C startcontest                              # nop in FireRed. Starts a contest.
 8D showcontestresults                        # nop in FireRed. Shows contest results.
@@ -204,10 +210,14 @@
 90 givemoney money:: check.                  # if check is 0, gives the player money
 91 paymoney money:: check.                   # if check is 0, takes money from the player
 92 checkmoney money:: check.                 # if check is 0, checks if the player has at least that much money. if so, 800D=1
-93 showmoney x. y.                           # shows how much money the player has in a separate box
+[AXPE_AXVE]      93 showmoney x. y.          # shows how much money the player has in a separate box
+[BPRE_BPGE_BPEE] 93 showmoney x. y. check.   # shows how much money the player has in a separate box
 94 hidemoney x. y.
-95 updatemoney x. y.                         # updates the amount of money shown after a money change
-96 nop96
+[AXPE_AXVE]      95 updatemoney x. y.        # updates the amount of money shown after a money change
+[BPRE_BPGE_BPEE] 95 updatemoney x. y. check. # updates the amount of money shown after a money change
+[AXPE_AXVE] 96 getpricereduction index:data.items.stats
+[BPRE_BPGE] 96 nop96
+[BPEE]      96 getpokenewsactive newsKind:
 97 fadescreen effect.                        # 00 fades in, 01 fades out
 98 fadescreendelay effect. delay.
 99 darken flashSize:                         # makes the screen go dark. Related to flash? Call from a level script.
@@ -219,8 +229,8 @@
 9F sethealingplace flightspot:               # where does the player warp when they die?
 A0 checkgender                               # if male, 800D=0. If female, 800D=1
 A1 cry species: effect:                      # plays that pokemon's cry. Can use a variable or a literal. what's effect do?
-A2 setmaptile x: y: tile: attribute:         # sets the tile at x/y to be the given tile: with the attribute.
-                                             # what does attribute do? It's usually 0 or 1.
+A2 setmaptile x: y: tile: isWall:            # sets the tile at x/y to be the given tile: with the attribute.
+                                             # 0 = passable (false), 1 = impassable (true)
 A3 resetweather                              # queues a weather change to the map's default weather
 A4 setweather type:                          #
 A5 doweather                                 # actually does the weather change from resetweather or setweather
@@ -269,10 +279,16 @@ CF executeram                                # weird. Shouldn't use. Script exec
 D0 setworldmapflag flag:                     # This lets the player fly to a given map, if the map has a flight spot
 D1 warpteleport2 bank. map. exit. x: y:      # clone of warpteleport, only used in FR/LG and only with specials
 D2 setcatchlocation slot: location.          # changes the catch location of a pokemon in your party (0-5)
-D3 braillelength pointer<>                   # sets variable 8004 based on th ebraille string's length
+
+[BPEE] D3 moverotatingtileobjects puzzleNumber:
+[BPRE_BPGE] D3 braillelength pointer<>       # sets variable 8004 based on th ebraille string's length
                                              # call this, then special 0x1B2 to make a cursor appear at the end of the text
-D4 bufferitems buffer.3 item: quantity:      # buffers the item name, but possibly pluralized if quantity is 2 or more
-D5 nopD5
+[BPRE_BPGE] D4 bufferitems buffer.3 item: quantity:      # buffers the item name, but possibly pluralized if quantity is 2 or more
+[BPEE] D4 turnrotatingtileobjects
+# there is no D5 in ruby
+[BPRE_BPGE] D5 nopD5
+[BPEE] D5 initrotatingtilepuzzle isTrickHouse:
+
 D6 cmdD6                                     # unknown
 D7 warp7 mapbank. map. warp. x: y:           # unknown
 D8 cmdD8                                     # unknown

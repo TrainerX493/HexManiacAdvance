@@ -35,6 +35,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       int NextExportID { get; set; }
 
       IFormatRunFactory FormatRunFactory { get; }
+      ITextConverter TextConverter { get; }
 
       new byte this[int index] { get; set; }
       IReadOnlyList<string> ListNames { get; }
@@ -103,7 +104,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       IEnumerable<string> GetAutoCompleteAnchorNameOptions(string partial, int maxResults = 30);
       StoredMetadata ExportMetadata(IMetadataInfo metadataInfo);
       void UpdateArrayPointer(ModelDelta changeToken, ArrayRunElementSegment segment, IReadOnlyList<ArrayRunElementSegment> segments, int parentIndex, int address, int destination);
-      int ConsiderResultsAsTextRuns(ModelDelta changeToken, IReadOnlyList<int> startLocations);
+      int ConsiderResultsAsTextRuns(Func<ModelDelta> futureChange, IReadOnlyList<int> startLocations);
 
       IEnumerable<string> GetAutoCompleteByteNameOptions(string text);
       IReadOnlyList<int> GetMatchedWords(string name);
@@ -111,10 +112,19 @@ namespace HavenSoft.HexManiac.Core.Models {
       void AppendTableGroup(ModelDelta token, string groupName, IReadOnlyList<string> tableNames, string hash);
    }
 
+   public class LimitSet<T> : HashSet<T>, ISet<T> {
+      private readonly int limit;
+      public LimitSet(int limit) => this.limit = limit;
+      bool ISet<T>.Add(T element) {
+         if (Count >= limit) return false;
+         return Add(element);
+      }
+   }
+
    public abstract class BaseModel : IDataModel {
       public const int PointerOffset = 0x08000000;
 
-      private readonly ISet<int> changes = new HashSet<int>();
+      private readonly ISet<int> changes = new LimitSet<int>(1000);
 
       public Task InitializationWorkload { get; protected set; }
 
@@ -131,6 +141,9 @@ namespace HavenSoft.HexManiac.Core.Models {
 
       public BaseModel(byte[] data) {
          RawData = data;
+         var code = data.GetGameCode();
+         if (code.Length > 4) code = code.Substring(0, 4);
+         TextConverter = new PCSConverter(code);
          InitializationWorkload = Task.CompletedTask;
       }
 
@@ -141,6 +154,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       public int NextExportID { get; set; }
 
       public IFormatRunFactory FormatRunFactory { get; protected set; } = new FormatRunFactory(false);
+      public ITextConverter TextConverter { get; private set; }
 
       public virtual IReadOnlyList<string> ListNames { get; } = new List<string>();
       public virtual IReadOnlyList<ArrayRun> Arrays { get; } = new List<ArrayRun>();
@@ -295,7 +309,7 @@ namespace HavenSoft.HexManiac.Core.Models {
       /// <summary>
       /// Returns the number of new runs found.
       /// </summary>
-      public virtual int ConsiderResultsAsTextRuns(ModelDelta changeToken, IReadOnlyList<int> startLocations) => 0;
+      public virtual int ConsiderResultsAsTextRuns(Func<ModelDelta> futureChange, IReadOnlyList<int> startLocations) => 0;
 
       public virtual IEnumerable<string> GetAutoCompleteAnchorNameOptions(string partial, int maxResults = 30) => new string[0];
 
@@ -550,6 +564,8 @@ namespace HavenSoft.HexManiac.Core.Models {
          var shortcuts = (IList<GotoShortcutModel>)model.GotoShortcuts;
          foreach (var gotoShortcut in metadata.GotoShortcuts) {
             if (shortcuts.Any(shortcut => shortcut.DisplayText == gotoShortcut.Display)) continue;
+            var tableName = gotoShortcut.Anchor.Split("/")[0];
+            if (shortcuts.Any(shortcut => shortcut.GotoAnchor.Split("/")[0] == tableName)) continue;
             shortcuts.Add(new GotoShortcutModel(gotoShortcut.Image, gotoShortcut.Anchor, gotoShortcut.Display));
          }
 
@@ -597,6 +613,9 @@ namespace HavenSoft.HexManiac.Core.Models {
          }
 
          var newTable = ExtendTableAndChildren(model, changeToken, table, count);
+         foreach (var otherTable in model.TablesWithSameConstantForLength(newTable)) {
+            ExtendTableAndChildren(model, changeToken, otherTable, count);
+         }
 
          if (newTable.Start != table.Start && string.IsNullOrEmpty(currentArrayName)) {
             table = newTable;
@@ -641,6 +660,17 @@ namespace HavenSoft.HexManiac.Core.Models {
          newRun = newRun.Append(changeToken, count);
          model.ObserveRunWritten(changeToken, newRun);
          return newRun;
+      }
+
+      public static IEnumerable<ITableRun> TablesWithSameConstantForLength(this IDataModel model, ITableRun tableRun) {
+         if (tableRun is not ArrayRun arrayRun) yield break;
+         var constants = model.GetMatchedWords(arrayRun.LengthFromAnchor);
+         if (constants == null || constants.Count == 0) yield break;
+         foreach (var array in model.Arrays) {
+            if (tableRun == array) continue;
+            if (array.LengthFromAnchor != arrayRun.LengthFromAnchor) continue;
+            yield return array;
+         }
       }
 
       public static IFormattedRun GetNextAnchor(this IDataModel model, string name) => model.GetNextRun(model.GetAddressFromAnchor(new ModelDelta(), -1, name));

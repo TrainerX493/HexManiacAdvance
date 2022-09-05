@@ -101,7 +101,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       }
 
       public void ChangeCompleted() {
-         customChangeInProgress = false;
+         if (!continueCurrentTransaction) customChangeInProgress = false;
          if (currentChange == null) return;
          if (!currentChange.HasAnyChange) { currentChange = null; return; }
          VerifyRevertNotInProgress();
@@ -185,6 +185,19 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          revertInProgress = true;
          var stub = new StubDisposable { Dispose = () => revertInProgress = false };
          return stub;
+      }
+
+      public void ClearHistory() {
+         VerifyRevertNotInProgress();
+         if (!IsSaved) undoStackSizeAtSaveTag = -1;
+         undoStack.Clear();
+         redoStack.Clear();
+         currentChange = null;
+
+         NotifyPropertyChanged(nameof(HasDataChange));
+         NotifyPropertyChanged(nameof(IsSaved));
+         undo.RaiseCanExecuteChanged();
+         redo.RaiseCanExecuteChanged();
       }
    }
 }

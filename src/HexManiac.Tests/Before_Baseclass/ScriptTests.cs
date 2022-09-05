@@ -69,7 +69,8 @@ namespace HavenSoft.HexManiac.Tests {
 
       [Fact]
       public void ScriptLine_MultibyteEnum_Loads() {
-         var args = Singletons.ScriptLines[0x44].Args;
+         var scriptLine = Singletons.ScriptLines.Single(line => line.LineCode.Count == 1 && line.LineCode[0] == 0x44);
+         var args = scriptLine.Args;
 
          Assert.Equal(HardcodeTablesModel.ItemsTableName, args[0].EnumTableName);
          Assert.Equal(2, args[0].Length(null, 0));
@@ -166,6 +167,20 @@ namespace HavenSoft.HexManiac.Tests {
          ViewPort.Edit("@!game(xxxx0_yyyy0) 11 ");
 
          Assert.Equal(0x11, Model[0]);
+      }
+
+      [Fact]
+      public void Insert00_Insert_SelectionTextMatchesSelection() {
+         SetFullModel(0xFF);
+         var lazyGuard = ViewPort.SelectedBytes;
+
+         var view = new StubView(ViewPort);
+         ViewPort.Edit("@!00(8) ");
+
+         Assert.Equal(new Point(0, 0), ViewPort.SelectionStart);
+         Assert.Equal(new Point(3, 0), ViewPort.SelectionEnd);
+         Assert.Equal("Selected Bytes: 00 00 00 00", ViewPort.SelectedBytes.Trim());
+         Assert.Contains(nameof(ViewPort.SelectedBytes), view.PropertyNotifications);
       }
 
       [Fact]
@@ -553,6 +568,17 @@ Script:
          var script = ViewPort.Tools.CodeTool.ScriptParser.Parse(Model, 0, 16).SplitLines();
 
          Assert.Equal("givePokemon 0 0 0", script[0].Trim());
+      }
+
+      [Fact]
+      public void TablePointsToScript_EditThenUndo_NoNewAnchors() {
+         ViewPort.Edit("<020> @00 ^table[pointer<`xse`>]1 ");
+
+         ViewPort.Edit("<030> ");
+         ViewPort.Undo.Execute();
+
+         var run = Model.GetNextRun(0x30);
+         Assert.Equal(int.MaxValue, run.Start);
       }
 
       private string Script(params string[] lines) => lines.CombineLines();

@@ -18,7 +18,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
    public class ChildViewPort : ViewPort, IChildViewPort {
       public IViewPort Parent { get; }
 
-      public ChildViewPort(IViewPort viewPort, IWorkDispatcher dispatcher, Singletons singletons) : base(viewPort.FileName, viewPort.Model, dispatcher, singletons, viewPort.ChangeHistory) {
+      public ChildViewPort(IViewPort viewPort, IWorkDispatcher dispatcher, Singletons singletons) : base(viewPort.FileName, viewPort.Model, dispatcher, singletons, null, viewPort.ChangeHistory) {
          Parent = viewPort;
          Width = Parent.Width;
       }
@@ -71,10 +71,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
       public IViewPort Parent => this[0].Parent;
 
+      public double ToolPanelWidth { get; set; } = 500;
+
       public string FileName => this[0].FileName;
 
       public string FullFileName => this[0].FullFileName;
 
+      public int PreferredWidth { get => this[0].PreferredWidth; set => ForEach(child => child.PreferredWidth = value); }
       public int Width { get => this[0].Width; set => ForEach(child => child.Width = value); }
       public int Height { get => this[0].Height; set => ForEach(child => child.Height = value); }
       public bool AutoAdjustDataWidth { get => this[0].AutoAdjustDataWidth; set => ForEach(child => child.AutoAdjustDataWidth = value); }
@@ -189,7 +192,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
       public void FollowLink(int x, int y) { }
 
-      public IReadOnlyList<IContextItem> GetContextMenuItems(Point point) => new IContextItem[0];
+      public IReadOnlyList<IContextItem> GetContextMenuItems(Point point, IFileSystem fileSystem) => new IContextItem[0];
 
       public bool IsSelected(Point point) => this.Any(child => child.IsSelected(point));
 

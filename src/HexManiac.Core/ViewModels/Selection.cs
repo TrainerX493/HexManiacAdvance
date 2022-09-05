@@ -165,9 +165,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                   address = addParts[0];
                   int.TryParse(addParts[1], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out offset);
                } else if (address.Split("-") is string[] subtractParts && subtractParts.Length == 2) {
-                  address = subtractParts[0];
-                  int.TryParse(subtractParts[1], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out offset);
-                  offset = -offset;
+                  if (int.TryParse(subtractParts[1], NumberStyles.HexNumber, CultureInfo.CurrentCulture, out offset)) {
+                     address = subtractParts[0];
+                     offset = -offset;
+                  }
                }
                using (ModelCacheScope.CreateScope(this.model)) {
                   var minSize = -1;
@@ -196,9 +197,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                         anchor = this.model.GetAddressFromAnchor(new ModelDelta(), -1, options[0]);
                         GotoAddress(anchor + offset);
                      } else if (options.Count > 1) {
-                        var bestMatches = options.Where(option => option.ToLower().Contains(address));
-                        options = bestMatches.Concat(options.Take(1).Distinct()).ToList();
-                        anchor = this.model.GetAddressFromAnchor(new ModelDelta(), -1, options[0]);
+                        var bestMatches = options.Where(option => option.ToLower().Contains(address)).ToList();
+                        if (bestMatches.Count > 0) {
+                           var shortestMatch = bestMatches.OrderBy(match => match.Split("/").Last().Length).First();
+                           anchor = this.model.GetAddressFromAnchor(new ModelDelta(), -1, shortestMatch);
+                        } else {
+                           anchor = this.model.GetAddressFromAnchor(new ModelDelta(), -1, options[0]);
+                        }
                         GotoAddress(anchor + offset);
                      } else {
                         OnError?.Invoke(this, $"Unable to goto address '{address}'");
@@ -307,8 +312,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       }
 
       private void GotoAddressAndAlign(int address, int preferredWidth, int tableStart = 0) {
-         Scroll.ClearTableMode();
-         Debug.Assert(Scroll.DataLength == model.Count, "I forgot to update the Scroll.DataLength after expanding the data!");
+         if (address < Scroll.DataStart || Scroll.DataLength < address) {
+            Scroll.ClearTableMode();
+            Debug.Assert(Scroll.DataLength == model.Count, "I forgot to update the Scroll.DataLength after expanding the data!");
+         }
 
          var startAddress = address;
          if (preferredWidth > 1) address -= (address - tableStart) % preferredWidth;

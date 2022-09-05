@@ -31,6 +31,9 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private EventHandler dataChanged;
       public event EventHandler DataChanged { add => dataChanged += value; remove => dataChanged -= value; }
 
+      private EventHandler dataSelected;
+      public event EventHandler DataSelected { add => dataSelected += value; remove => dataSelected -= value; }
+
       public ViewPort ViewPort { get; }
       public IDataModel Model { get; }
       public string Name { get => name; set => TryUpdate(ref name, value); }
@@ -91,6 +94,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          TryUpdate(ref content, field.Content, nameof(Content));
          ErrorText = field.ErrorText;
          dataChanged = field.dataChanged;
+         dataSelected = field.dataSelected;
          CanAcceptChanged?.Invoke(this, EventArgs.Empty);
          return true;
       }
@@ -110,6 +114,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public bool CanAccept() {
          return Type == ElementContentViewModelType.Address && ViewPort.Goto.CanExecute(Content);
       }
+
+      public void Focus() => dataSelected?.Invoke(this, EventArgs.Empty);
 
       #region Increment/Decrement
 
@@ -152,7 +158,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       public ElementContentViewModelType Type => ElementContentViewModelType.TextField;
 
       public void UpdateModelFromViewModel(FieldArrayElementViewModel viewModel) {
-         var textBytes = PCSString.Convert(viewModel.Content);
+         var textBytes = viewModel.Model.TextConverter.Convert(viewModel.Content, out var _);
          while (textBytes.Count < viewModel.Length) textBytes.Add(0x00);
          if (textBytes.Count > viewModel.Length) textBytes[viewModel.Length - 1] = 0xFF;
          for (int i = 0; i < viewModel.Length; i++) {
@@ -161,7 +167,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       }
 
       public string UpdateViewModelFromModel(FieldArrayElementViewModel viewModel) {
-         var text = PCSString.Convert(viewModel.Model, viewModel.Start, viewModel.Length)?.Trim() ?? string.Empty;
+         var text = viewModel.Model.TextConverter.Convert(viewModel.Model, viewModel.Start, viewModel.Length)?.Trim() ?? string.Empty;
 
          // take off quotes
          if (text.StartsWith("\"")) text = text.Substring(1);

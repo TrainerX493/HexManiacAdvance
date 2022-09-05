@@ -791,6 +791,17 @@ Name = '''script_compare'''
 ]
 
 [[List]]
+Name = '''battle_compare'''
+0 = [
+    '''=''',
+    '''!=''',
+    '''>''',
+    '''<''',
+    '''&''',
+    '''&~''',
+]
+
+[[List]]
 Name = '''catchmap_shape'''
 0 = [
     '''small''',
@@ -818,6 +829,13 @@ Name = '''trainergender'''
 0 = [
     '''male''',
     '''female''',
+]
+
+[[List]]
+Name = '''doublebattleflag'''
+0 = [
+   '''Single''',
+   '''Double''',
 ]
 
 [[List]]
@@ -854,30 +872,26 @@ Name = '''statusanimations'''
    '''Nightmare''',
 ]
 
+# This item list isn't actually used... it works for most items, but for pokeball items, the 'type' list means something totally different.
 [[List]]
-Name = '''effectanimations'''
+Name = '''itemtype'''
 0 = [
-   '''FormChange''',
-   '''StatChange''',
-   '''SubstituteFade''',
-   '''SubstituteAppear''',
-   '''PokeblockThrow''',
-   '''ItemKnockOff''',
-   '''TurnTrap''',
-   '''HeldItemEffect''',
-   '''SmokeBall''',
-   '''FocusBand''',
-   '''Rain''',
-   '''Sun''',
-   '''Sandstorm''',
-   '''Hail''',
-   '''LeechSeedDrain''',
-   '''ConfuseHit''',
-   '''ItemSteal''',
-   '''SnatchMove''',
-   '''FutureSight''',
-   '''DoomDesire''',
-   '''FocusPunchSetUp''',
-   '''IngrainHeal''',
-   '''WishHeal''',
+    '''Mail''',
+    '''Party_Menu''',
+    '''Field''',
+    '''PokeBlock_Case''',
+    '''Bag_Menu''',
+]
+
+[[List]]
+Name = '''varmacros'''
+32780 = [
+   '''Facing''',
+   '''Ans''',
+   '''ItemID''',
+   '''LastTalked''',
+   '''ContestRank''',
+   '''ContestCategory''',
+   '''MonBoxID''',
+   '''MonBoxPosition''',
 ]

@@ -81,6 +81,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
             return child.Width * line + child.DataOffset;
          }
       }
+      public double ToolPanelWidth { get; set; } = 500;
       public string Name { get; }
       public string FullFileName { get; }
       public string FileName => string.Empty;
@@ -282,7 +283,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          children[childIndex].FindAllSources(x, y);
       }
 
-      public IReadOnlyList<IContextItem> GetContextMenuItems(Point selectionPoint) {
+      public IReadOnlyList<IContextItem> GetContextMenuItems(Point selectionPoint, IFileSystem fileSystem) {
          return new[] { new ContextItem("Open in Main Tab", arg => {
             FollowLink(selectionPoint.X, selectionPoint.Y);
             RequestMenuClose?.Invoke(this, EventArgs.Empty);

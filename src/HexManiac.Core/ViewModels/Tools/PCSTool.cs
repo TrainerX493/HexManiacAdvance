@@ -1,15 +1,17 @@
 ﻿using HavenSoft.HexManiac.Core.Models;
 using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
+using HavenSoft.HexManiac.Core.ViewModels.Visitors;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Text;
 using System.Windows.Input;
 
 namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
    public class PCSTool : ViewModelCore, IToolViewModel {
+      private readonly ViewPort viewPort;
       private readonly IDataModel model;
-      private readonly Selection selection;
       private readonly ChangeHistory<ModelDelta> history;
       private readonly IToolTrayViewModel runner;
       private readonly StubCommand
@@ -101,6 +103,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          }
       }
 
+      public ObservableCollection<ContextItem> GotoOptions { get; } = new();
+
       public event EventHandler<string> OnError;
       public event EventHandler<IFormattedRun> ModelDataChanged;
       public event EventHandler<(int originalLocation, int newLocation)> ModelDataMoved;
@@ -108,15 +112,15 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       // properties that exist solely so the UI can remember things when the tab switches
       public double VerticalOffset { get; set; }
 
-      public PCSTool(IDataModel model, Selection selection, ChangeHistory<ModelDelta> history, IToolTrayViewModel runner) {
-         this.model = model;
-         this.selection = selection;
+      public PCSTool(ViewPort viewPort, ChangeHistory<ModelDelta> history, IToolTrayViewModel runner) {
+         this.viewPort = viewPort;
+         this.model = viewPort.Model;
          this.history = history;
          this.runner = runner;
          checkIsText.CanExecute = arg => ShowMessage;
          checkIsText.Execute = arg => {
             var startPlaces = model.FindPossibleTextStartingPlaces(Address, 1);
-            var results = model.ConsiderResultsAsTextRuns(history.CurrentChange, startPlaces);
+            var results = model.ConsiderResultsAsTextRuns(() => history.CurrentChange, startPlaces);
             if (results == 0) {
                OnError?.Invoke(this, $"Could not discover text at {address:X6}.");
             } else {
@@ -129,7 +133,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          insertText.CanExecute = arg => ShowMessage;
          insertText.Execute = arg => {
             if (address < 0 || model.Count <= address || model[address] != 0xFF || model.GetNextRun(address).Start <= address) {
-               address = selection.Scroll.ViewPointToDataIndex(selection.SelectionStart);
+               address = viewPort.ConvertViewPointToAddress(viewPort.SelectionStart);
             }
             if (address < 0 || model.Count <= address || model[address] != 0xFF || model.GetNextRun(address).Start <= address) {
                OnError?.Invoke(this, $"Could not insert text at {address:X6}.{Environment.NewLine}The bytes must be unused (FF).");
@@ -174,10 +178,15 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             runner.Schedule(DataForCurrentRunChanged);
             Enabled = true;
             ShowMessage = false;
+            GotoOptions.Clear();
+            foreach (var option in new ContextItemFactory(viewPort).GetAnchorSourceItems(address)) {
+               GotoOptions.Add(option);
+            }
          } else {
             Enabled = false;
             ShowMessage = true;
             Message = $"{address:X6} does not appear to be text.";
+            GotoOptions.Clear();
          }
       }
 
@@ -190,7 +199,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
                var lines = new string[array.ElementCount];
                var textStart = offsets.SegmentStart - offsets.ElementIndex * array.ElementLength; // the starting address of the first text element
                for (int i = 0; i < lines.Length; i++) {
-                  var newContent = PCSString.Convert(model, textStart + i * array.ElementLength, segment.Length)?.Trim() ?? string.Empty;
+                  var newContent = model.TextConverter.Convert(model, textStart + i * array.ElementLength, segment.Length)?.Trim() ?? string.Empty;
                   newContent = RemoveQuotes(newContent);
                   lines[i] = newContent;
                }
@@ -259,8 +268,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          var selectionLength = contentSelectionLength;
 
          if (run is PCSRun) {
-            selectionLength = Math.Max(PCSString.Convert(content.Substring(selectionStart, selectionLength)).Count - 2, 0); // remove 1 byte since 0xFF was added on and 1 byte since the selection should visually match
-            selectionStart = PCSString.Convert(content.Substring(0, selectionStart)).Count - 1 + run.Start; // remove 1 byte since the 0xFF was added on
+            selectionLength = Math.Max(model.TextConverter.Convert(content.Substring(selectionStart, selectionLength), out var _).Count - 2, 0); // remove 1 byte since 0xFF was added on and 1 byte since the selection should visually match
+            selectionStart = model.TextConverter.Convert(content.Substring(0, selectionStart), out var _).Count - 1 + run.Start; // remove 1 byte since the 0xFF was added on
          } else if (run is ArrayRun array) {
             var offset = array.ConvertByteOffsetToArrayOffset(Address);
             var textStart = offset.SegmentStart - offset.ElementIndex * array.ElementLength; // the starting address of the first text element
@@ -283,8 +292,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          }
 
          using (history.ContinueCurrentTransaction()) {
-            selection.SelectionStart = selection.Scroll.DataIndexToViewPoint(selectionStart);
-            selection.SelectionEnd = selection.Scroll.DataIndexToViewPoint(selectionStart + selectionLength);
+            viewPort.SelectionStart = viewPort.ConvertAddressToViewPoint(selectionStart);
+            viewPort.SelectionEnd = viewPort.ConvertAddressToViewPoint(selectionStart + selectionLength);
          }
       }
 
@@ -300,7 +309,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             if (arrayRun.Start != newRun.Start) ModelDataMoved?.Invoke(this, (arrayRun.Start, newRun.Start));
             var segmentLength = newRun.ElementContent[offsets.SegmentIndex].Length;
             for (int i = 0; i < lines.Length; i++) {
-               var bytes = PCSString.Convert(lines[i]);
+               var bytes = model.TextConverter.Convert(lines[i], out var _);
                if (bytes.Count > segmentLength) bytes[segmentLength - 1] = 0xFF; // truncate and always end with an endstring character
                for (int j = 0; j < segmentLength; j++) {
                   if (j < bytes.Count) {

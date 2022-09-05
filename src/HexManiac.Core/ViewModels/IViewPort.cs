@@ -14,6 +14,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       event EventHandler PreviewScrollChanged;
       event EventHandler<IDataModel> RequestCloseOtherViewports;
 
+      double ToolPanelWidth { get; set; } // exists for binding, to track the left panel width when changing tabs
+
       string FileName { get; } // Name is dispayed in a tab. FileName lets us know when to call 'ConsiderReload'
       string FullFileName { get; } // FullFileName is displayed when hovering over the tab.
 
@@ -62,11 +64,12 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       ChangeHistory<ModelDelta> ChangeHistory { get; }
       IToolTrayViewModel Tools { get; }
 
-      IReadOnlyList<IContextItem> GetContextMenuItems(Point point);
+      IReadOnlyList<IContextItem> GetContextMenuItems(Point point, IFileSystem fileSystem);
    }
 
    public interface IEditableViewPort : IViewPort {
       bool AllowSingleTableMode { get; set; }
+      bool IsFocused { get; set; }
       Point SelectionStart { get; }
       Point SelectionEnd { get; }
       new string AnchorText { get; set; }

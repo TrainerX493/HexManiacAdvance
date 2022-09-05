@@ -610,6 +610,124 @@ namespace HavenSoft.HexManiac.Tests {
          Assert.Equal(payload, result);
       }
 
+      [Fact]
+      public void TextList_Goto_PreferExactMatch() {
+         this.CreateTextTable("names", 0x100, "content", "THUNDERPUNCH", "other", "THUNDER", "something");
+
+         ViewPort.Goto.Execute("thunder");
+
+         Assert.Equal(3, ViewPort.Tools.TableTool.CurrentElementSelector.SelectedIndex);
+      }
+
+      [Theory]
+      [InlineData("BPRE", "[white]", "FC 01 00 FF")]
+      public void TextWithMacro_Convert_CorrectBytes(string gameCode, string macro, string bytes) {
+         var result = PCSString.Convert(macro, gameCode, out var containsBadCharacters);
+         Assert.False(containsBadCharacters);
+         Assert.Equal(bytes.ToByteArray(), result);
+      }
+
+      [Theory]
+      [InlineData("BPEE", "\"[orange]\"", "FC 01 05 FF")]
+      public void BytesWithMacro_Convert_CorrectText(string gameCode, string macro, string bytesAsText) {
+         var bytes = bytesAsText.ToByteArray();
+         var result = PCSString.Convert(gameCode, bytes, 0, bytes.Length);
+         Assert.Equal(macro, result);
+      }
+
+      [Fact]
+      public void TextWithMacro_ShowInHexContent_FirstByteDoesNotShowMacro() {
+         SetFullModel(0xFF);
+         HackTextConverter("BPRE");
+
+         Token.ChangeData(Model, 0, new byte[] { 0xFC, 0x01, 0x05, 0xFF });
+         Model.ObserveRunWritten(Token, new PCSRun(Model, 0, 4));
+         ViewPort.Refresh();
+         var cell = (PCS)ViewPort[0, 0].Format;
+
+         Assert.Equal("\"\\CC", cell.ThisCharacter);
+      }
+
+      [Fact]
+      public void SearchText_NoResults_NoMetadataChange() {
+         var results = ViewPort.Find("Not in file");
+         Assert.Empty(results);
+         Assert.True(ViewPort.ChangeHistory.IsSaved);
+      }
+
+      [Fact]
+      public void TextAnchor_ChangeToNoInfoAnchor_NoNameIsError() {
+         SetFullModel(0xFF);
+         ViewPort.Edit("^text\"\" ");
+
+         ViewPort.AnchorText = "^";
+
+         Assert.NotEmpty(Errors);
+      }
+
+      [Fact]
+      public void AddTextAnchorName_EditWithTextTool_BytesUpdate() {
+         Model[4] = 0xFF;
+         Token.ChangeData(Model, 5, PCSString.Convert("test"));
+         Model.WritePointer(Token, 0x100, 5);
+         ViewPort.SelectionStart = new(6, 0);
+         ViewPort.Shortcuts.DisplayAsText.Execute();
+
+         ViewPort.SelectionStart = new(5, 0);
+         ViewPort.AnchorText = "^name\"\"";
+
+         ViewPort.Tools.StringTool.ContentIndex = 1;
+         ViewPort.Tools.StringTool.Content = "tst";
+
+         Assert.Equal("tst", PCSString.Convert(Model, 5, 5).Trim('"'));
+      }
+
+      [Fact]
+      public void BytesWithColorMacro_CopyTextThenPaste_SameBytes() {
+         SetFullModel(0xFF);
+         HackTextConverter("BPRE");
+         var bytes = "CD E3 E1 D9 FC 01 06 CE D9 EC E8 FF".ToByteArray(); // Some[green]Text
+         Token.ChangeData(Model, 0, bytes);
+         ViewPort.Refresh();
+         ViewPort.Edit("^text\"\"");
+
+         ViewPort.ExpandSelection(0, 0);
+         ViewPort.Copy.Execute(FileSystem);
+         ViewPort.Goto.Execute(0x30);
+         ViewPort.Edit(FileSystem.CopyText);
+
+         ViewPort.Goto.Execute(0x30);
+         ViewPort.ExpandSelection(0, 0);
+         ViewPort.CopyBytes.Execute(FileSystem);
+         var result = FileSystem.CopyText.value.ToByteArray();
+         Assert.Equal(bytes, result);
+      }
+
+      [Fact]
+      public void SpecialCharacters_MatchAgainstNormalCharacters_Match() {
+         Assert.True("á.é".MatchesPartialWithReordering("ea"));
+         Assert.True("a.e".MatchesPartialWithReordering("éá"));
+      }
+
+      [Fact]
+      public void AsciiText_LastEdit_Notify() {
+         SetFullModel(0xFF);
+         ViewPort.Edit("^test`asc`7 123456");
+
+         var view = new StubView(ViewPort.Tools.StringTool);
+         ViewPort.Edit("7");
+
+         Assert.Equal("1234567", ViewPort.Tools.StringTool.Content);
+         Assert.Contains(nameof(ViewPort.Tools.StringTool.Content), view.PropertyNotifications);
+      }
+
+      private void HackTextConverter(string game) {
+         var converter = new PCSConverter(game);
+         var property = Model.GetType().GetProperty(nameof(Model.TextConverter));
+         property = property.DeclaringType.GetProperty(nameof(Model.TextConverter));
+         property.GetSetMethod(true).Invoke(Model, new object[] { converter });
+      }
+
       private void Write(IDataModel model, ref int i, string characters) {
          foreach (var c in characters.ToCharArray())
             model[i++] = (byte)PCSString.PCS.IndexOf(c.ToString());

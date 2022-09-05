@@ -1,4 +1,5 @@
-﻿using HavenSoft.HexManiac.Core.ViewModels.Tools;
+﻿using HavenSoft.HexManiac.Core;
+using HavenSoft.HexManiac.Core.ViewModels.Tools;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -16,6 +17,7 @@ namespace HavenSoft.HexManiac.WPF.Controls {
    public partial class AngleTextBox {
 
       private static readonly Thickness TextContentThickness = new(0, 1, 0, 1);
+      private ContextMenu menu;
 
       private bool keepTextBoxForContextMenu;
       public TextBox GetTextBox() {
@@ -140,14 +142,22 @@ namespace HavenSoft.HexManiac.WPF.Controls {
          var isActive = IsMouseOver || IsFocused || IsKeyboardFocusWithin || keepTextBoxForContextMenu;
          isActive |= Content is TextBox tb && tb.ContextMenu != null && tb.ContextMenu.IsOpen;
          if (isActive && Content is TextBoxLookAlike) {
-            var keyBinding = new KeyBinding { Key = Key.Enter };
-            BindingOperations.SetBinding(keyBinding, InputBinding.CommandProperty, new Binding(nameof(FieldArrayElementViewModel.Accept)));
             var textBox = new TextBox {
                UndoLimit = 0,
-               InputBindings = { keyBinding },
                BorderThickness = TextContentThickness,
                VerticalAlignment = VerticalAlignment.Stretch,
             };
+            if (ContextMenu != null) {
+               menu = ContextMenu;
+               ContextMenu = null;
+            }
+            if (menu != null) textBox.ContextMenu = menu;
+
+            if (DataContext is FieldArrayElementViewModel) textBox.InputBindings.Add(
+               new KeyBinding {
+                  Key = Key.Enter,
+                  Command = new MethodCommand(DataContext, nameof(FieldArrayElementViewModel.Accept))
+               });
             if (textBinding != null) {
                textBox.SetBinding(TextBox.TextProperty, textBinding);
             } else {

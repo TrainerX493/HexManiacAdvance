@@ -14,6 +14,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -190,9 +191,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          get => hexText;
          set {
             if (!TryUpdate(ref hexText, value)) return;
-            var parseHex = hexText.Where(ViewPort.AllHexCharacters.Contains).Select(c => c.ToString()).Aggregate(string.Empty, string.Concat);
-            if (!int.TryParse(parseHex, NumberStyles.HexNumber, CultureInfo.CurrentCulture, out int result)) return;
-            TryUpdate(ref decText, result.ToString(), nameof(DecText));
+            var result = DoMath(hexText, text => text.TryParseHex(out int number) ? number : null);
+            Set(ref decText, result.ToString(), nameof(DecText));
          }
       }
 
@@ -201,9 +201,27 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          get => decText;
          set {
             if (!TryUpdate(ref decText, value)) return;
-            if (!int.TryParse(decText, out int result)) return;
-            TryUpdate(ref hexText, result.ToString("X2"), nameof(HexText));
+            var result = DoMath(decText, text => int.TryParse(text, out int number) ? number : null);
+            Set(ref hexText, result.ToString("X1"), nameof(HexText));
          }
+      }
+
+      private int DoMath(string text, Func<string, int?> parse) {
+         var operators = text.Length.Range().Where(i => text[i] == '+' || text[i] == '-').ToList();
+         operators.Add(text.Length);
+         var left = parse(text.Substring(0, operators[0]));
+         if (left == null) return 0;
+         for (int i = 1; i < operators.Count; i++) {
+            var op = text[operators[i - 1]];
+            var length = operators[i] - operators[i - 1] - 1;
+            var right = parse(text.Substring(operators[i - 1] + 1, length));
+            if (right == null) return 0;
+            left = op switch {
+               '-' => (int)left - (int)right,
+               _ => (int)left + (int)right,
+            };
+         }
+         return (int)left;
       }
 
       public void RunQuickEdit(IQuickEditItem edit) {
@@ -282,7 +300,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       private string errorMessage;
       public string ErrorMessage {
          get => errorMessage;
-         private set {
+         set {
             TryUpdate(ref errorMessage, value);
             ShowError = !string.IsNullOrEmpty(ErrorMessage);
          }
@@ -360,6 +378,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
       public Theme Theme { get; }
 
+      public IFileSystem FileSystem => fileSystem;
+
       private string infoMessage;
       public string InformationMessage {
          get => infoMessage;
@@ -379,6 +399,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       public IReadOnlyList<IQuickEditItem> QuickEditsExpansion { get; }
 
       public IReadOnlyList<IQuickEditItem> QuickEditsMisc { get; }
+
+      public PythonTool PythonTool { get; }
 
       public Singletons Singletons { get; }
 
@@ -412,6 +434,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                   NotifyPropertyChanged(nameof(SelectedTab));
                   NotifyPropertyChanged(nameof(ShowWidthOptions));
                   NotifyPropertyChanged(nameof(IsMetadataOnlyChange));
+                  NotifyPropertyChanged(nameof(CanCalculateHashes));
                   diffLeft.RaiseCanExecuteChanged();
                   diffRight.RaiseCanExecuteChanged();
                   if (SelectedTab is IViewPort vp) vp.FindBytes = SearchBytes;
@@ -448,6 +471,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
             new ExpandRom(fileSystem),
             new MakeTutorsExpandable(),
             new MakeMovesExpandable(),
+            new AddTilesetAnimation(fileSystem),
             // new MakeTmsExpandable(),   // expanding TMs requires further research.
             // new MakeItemsExpandable(),
          };
@@ -535,6 +559,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
             RecentFiles = new ObservableCollection<string>();
          }
          PopulateRecentFilesViewModel();
+         PythonTool = new PythonTool(this);
       }
 
       public static ICommand Wrap(IQuickEditItem quickEdit) => new StubCommand {
@@ -569,7 +594,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
       private void ImplementCommands() {
          newCommand.CanExecute = CanAlwaysExecute;
-         newCommand.Execute = arg => Add(new ViewPort(string.Empty, new PokemonModel(new byte[0], singletons: Singletons), workDispatcher, Singletons));
+         newCommand.Execute = arg => Add(new ViewPort(string.Empty, new PokemonModel(new byte[0], singletons: Singletons), workDispatcher, Singletons, PythonTool));
 
          open.CanExecute = CanAlwaysExecute;
          open.Execute = ExecuteOpen;
@@ -642,8 +667,14 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                copyText += " ";
                copyText = copyText.Replace(Environment.NewLine, "\n"); // normalize newline inputs
             }
+            if (copyText.Count('"') % 2 == 0 && copyText.Length > 2 && !copyText.EndsWith(' ')) {
+               // In the case of 'paste' inputs with no open quotes, add a space
+               // at the end to make it more likely to complete the last element.
+               copyText += ' ';
+            }
 
-            (SelectedTab as ViewPort)?.Edit(copyText);
+
+            if (SelectedTab is ViewPort viewPort && viewPort.IsFocused) viewPort.Edit(copyText);
          };
       }
 
@@ -663,8 +694,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                metadataText = fileSystem.MetadataFor(file.Name) ?? new string[0];
             }
             var metadata = new StoredMetadata(metadataText);
-            var model = new HardcodeTablesModel(Singletons, file.Contents, metadata);
-            var viewPort = new ViewPort(file.Name, model, workDispatcher, Singletons);
+            IDataModel model = file.Name.ToLower().EndsWith(".gba") ?
+               new HardcodeTablesModel(Singletons, file.Contents, metadata) :
+               new PokemonModel(file.Contents, metadata, Singletons);
+            var viewPort = new ViewPort(file.Name, model, workDispatcher, Singletons, PythonTool);
             if (metadata.IsEmpty || StoredMetadata.NeedVersionUpdate(metadata.Version, Singletons.MetadataInfo.VersionNumber)) {
                _ = viewPort.Model.InitializationWorkload.ContinueWith(task => {
                   fileSystem.SaveMetadata(file.Name, viewPort.Model.ExportMetadata(Singletons.MetadataInfo).Serialize());
@@ -769,6 +802,30 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          }
          if (anyTabsClosed) InformationMessage = "Other tabs for that in-memory file were automatically closed.";
       }
+
+      #region CalculateHashes
+
+      public bool CanCalculateHashes => SelectedTab is IEditableViewPort;
+      public void CalculateHashes() {
+         if (SelectedTab is not IEditableViewPort viewPort) return;
+         var sha = GetSHA1(viewPort);
+         var crc = GetCRC32(viewPort);
+         var nl = Environment.NewLine;
+         fileSystem.ShowCustomMessageBox($"SHA1:{nl}{sha}{nl}{nl}CRC32:{nl}{crc}", false);
+      }
+
+      public static string GetSHA1(IEditableViewPort viewPort) {
+         var sha = SHA1.Create();
+         var result = string.Concat(sha.ComputeHash(viewPort.Model.RawData).Select(b => b.ToString("X2")));
+         return result;
+      }
+
+      public static string GetCRC32(IEditableViewPort viewPort) {
+         var crc = Force.Crc32.Crc32Algorithm.Compute(viewPort.Model.RawData);
+         return crc.ToString("X8");
+      }
+
+      #endregion
 
       public void SwapTabs(int a, int b) {
          var temp = tabs[a];
@@ -952,6 +1009,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
                   fileSystem.RemoveListenerForFile(viewPort.FileName, viewPort.ConsiderReload);
                   using (new StubDisposable { Dispose = () => fileSystem.AddListenerToFile(viewPort.FileName, viewPort.ConsiderReload) }) {
                      innerCommand.Execute(fileSystem);
+                     UpdateRecentFiles(viewPort.FileName);
                   }
                } else {
                   if (tab is ViewPort vp) vp.MaxDiffSegmentCount = this.maxDiffSegCount;
@@ -985,9 +1043,17 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          var searchedModels = new List<IDataModel>();
          foreach (var tab in tabs) {
             bool searchThisTab = searchAllFiles || tab == SelectedTab;
-            if (searchThisTab && tab is IViewPort viewPort && searchedModels.All(model => model != viewPort.Model)) {
-               results.AddRange(viewPort.Find(search, MatchExactCase).Select(offset => (viewPort, offset.start, offset.end)));
-               searchedModels.Add(viewPort.Model);
+            if (searchThisTab && tab is IViewPort viewPort &&
+               searchedModels.All(model => model != viewPort.Model)
+            ) {
+               if (tab != SelectedTab && tabs.Any(tab => tab is IViewPort vp1 && vp1 == SelectedTab && vp1.Model == viewPort.Model)) {
+                  // don't include results from this tab
+                  // a different tab has the same model and is selected
+                  // we'll get results from that tab instead.
+               } else {
+                  results.AddRange(viewPort.Find(search, MatchExactCase).Select(offset => (viewPort, offset.start, offset.end)));
+                  searchedModels.Add(viewPort.Model);
+               }
             }
          }
 
@@ -1030,7 +1096,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
       private void RemoveTab(object sender, EventArgs e) {
          var tab = (ITabContent)sender;
-         if (!tabs.Contains(tab)) throw new InvalidOperationException("Cannot remove tab, because tab is not currently in editor.");
+         if (!tabs.Contains(tab)) return;
          var index = tabs.IndexOf(tab);
 
          // if the tab to remove is the selected tab, select the next tab (or the previous if there is no next)
@@ -1051,6 +1117,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          RemoveContentListeners(tab);
          tabs.Remove(tab);
          CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, tab, index));
+         diffLeft.RaiseCanExecuteChanged();
+         diffRight.RaiseCanExecuteChanged();
       }
 
       private void AddContentListeners(ITabContent content) {
@@ -1235,7 +1303,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       }
 
       private void TabChangeRequested(object sender, ITabContent newTab) {
-         if (sender != SelectedTab) return;
+         var isNewTabWithSameModel = !tabs.Contains(newTab) && sender is ViewPort oldViewPort && newTab is ViewPort newViewPort && oldViewPort.Model == newViewPort.Model;
+         if (sender != SelectedTab && !isNewTabWithSameModel) return;
          var index = tabs.IndexOf(newTab);
          if (index == -1) {
             Add(newTab);

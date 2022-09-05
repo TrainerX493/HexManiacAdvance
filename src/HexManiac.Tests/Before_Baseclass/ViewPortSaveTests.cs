@@ -655,5 +655,41 @@ namespace HavenSoft.HexManiac.Tests {
          var metadata = new StoredMetadata(new[] { "ShowRawIVByteForTrainer = True" });
          Assert.True(metadata.ShowRawIVByteForTrainer);
       }
+
+      [Fact]
+      public void StoredListWithCustomHash_ExportMetadata_HashSaved() {
+         Model.SetList(Token, "list", new[] { "a", "b", "c" }, "0");
+
+         var metadata = Model.ExportMetadata(Singletons.MetadataInfo);
+
+         var list = metadata.Lists[0];
+         Assert.Equal("list", list.Name);
+         Assert.Equal("0", list.Hash);
+         Assert.False(list.HashMatches);
+      }
+
+      [Fact]
+      public void TableGroup_ExportMetadata_ExportHash() {
+         var items = new[] { "a", "b", "c" };
+         Model.AppendTableGroup(Token, "group", items, null);
+
+         var metadata = Model.ExportMetadata(Singletons.MetadataInfo);
+         var lines = metadata.Serialize();
+
+         var line = lines.Single(line => line.StartsWith("DefaultHash"));
+         var expectedHash = StoredList.GenerateHash(items);
+         Assert.Equal($"DefaultHash = '''{expectedHash:X8}'''", line);
+      }
+
+      [Fact]
+      public void LoadShortcut_SameTableAlreadyInShortcut_NoLoad() {
+         var shortcut1 = new StoredGotoShortcut("name1", "image1", "destination/1");
+         Model.LoadMetadata(new StoredMetadata(gotoShortcuts: new[] { shortcut1 }));
+
+         var shortcut2 = new StoredGotoShortcut("name2", "image2", "destination/2");
+         Model.LoadMetadata(new StoredMetadata(gotoShortcuts: new[] { shortcut2 }));
+
+         Assert.Single(Model.GotoShortcuts);
+      }
    }
 }

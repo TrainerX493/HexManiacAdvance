@@ -188,7 +188,9 @@ namespace HavenSoft.HexManiac.Core.Models.Code {
          var result = Compile(model, start, out var newRuns, lines);
 
          // we want to clear the format since pointers may have moved
-         model.ClearFormat(token, start, result.Count);
+         // but be careful not to clear any pointers to this routine+1, because of the way bx instructions work
+         model.ClearFormat(token, start, 1);
+         if (result.Count > 1) model.ClearFormat(token, start + 1, result.Count - 1);
          // but we want to keep an initial anchor pointing to this code block if there was one.
          if (!string.IsNullOrEmpty(initialAnchor)) model.ObserveAnchorWritten(token, initialAnchor, new NoInfoRun(start));
 
@@ -962,7 +964,7 @@ namespace HavenSoft.HexManiac.Core.Models.Code {
          if (word.EndsWith(")")) word = word.Substring(0, word.Length - 1).Trim();
 
          var more = 0;
-         if (word.Contains("+")) {
+         if (word.IndexOf("+") > word.IndexOf(">")) {
             var parts = word.Split("+");
             if (parts.Length == 2) int.TryParse(parts[1], out more);
             word = parts[0];
@@ -1008,7 +1010,7 @@ namespace HavenSoft.HexManiac.Core.Models.Code {
       }
 
       public static bool IsEndOfSection(string line) {
-         return line.StartsWith("b ") || line.StartsWith("bx ") || (line.StartsWith("pop ") && line.Contains(" pc"));
+         return line.StartsWith("b ") || line.StartsWith("bx ") || (line.StartsWith("pop ") && line.Contains("pc"));
       }
 
       public static bool TryCompile(int address, string line, LabelLibrary labels, Queue<DeferredLoadRegisterToken> inlineWords) {

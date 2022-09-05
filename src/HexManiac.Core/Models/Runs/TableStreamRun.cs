@@ -1,12 +1,11 @@
-﻿using System;
+﻿using HavenSoft.HexManiac.Core.ViewModels;
+using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
-using HavenSoft.HexManiac.Core.ViewModels;
-using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
-using HavenSoft.HexManiac.Core.ViewModels.Tools;
-using HavenSoft.HexManiac.Core.ViewModels.Visitors;
 
 namespace HavenSoft.HexManiac.Core.Models.Runs {
    public class TableStreamRun : BaseRun, IStreamRun, ITableRun {
@@ -30,6 +29,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             var segments = ArrayRun.ParseSegments(segmentContent, model);
             var endStream = ParseEndStream(model, fieldName, content.Substring(close + 1), segments, sourceSegments);
             if (endStream == null) return false;
+            if (segments.Count == 0) return false;
             tableStream = new TableStreamRun(model, start, sources, content, segments, endStream);
          } catch (ArrayRunParseException) {
             return false;
@@ -134,7 +134,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             if (currentCachedStartIndex != offsets.SegmentStart || currentCachedIndex > offsets.SegmentOffset) {
                currentCachedStartIndex = offsets.SegmentStart;
                currentCachedIndex = offsets.SegmentOffset;
-               cachedCurrentString = PCSString.Convert(data, offsets.SegmentStart, currentSegment.Length);
+               cachedCurrentString = data.TextConverter.Convert(data, offsets.SegmentStart, currentSegment.Length);
             }
 
             var pcsFormat = PCSRun.CreatePCSFormat(data, offsets.SegmentStart, index, cachedCurrentString);
@@ -148,7 +148,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       }
 
       protected override BaseRun Clone(SortedSpan<int> newPointerSources) =>
-         new TableStreamRun(model, Start, newPointerSources, FormatString, ElementContent, endStream);
+         new TableStreamRun(model, Start, newPointerSources, FormatString, ElementContent, endStream, ElementCount);
 
       #endregion
 
@@ -187,7 +187,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             for (int j = 0; j < ElementContent.Count; j++) {
                var data = j < tokens.Count ? tokens[j] : string.Empty;
                if (j == ElementContent.Count - 1 && tokens.Count > ElementContent.Count) data += " " + " ".Join(tokens.Skip(j + 1));
-               if (ElementContent[j].Write(model, token, start + segmentOffset, ref data)) changedAddresses.Add(start + segmentOffset);
+               if (ElementContent[j].Write(ElementContent, model, token, start + segmentOffset, ref data)) changedAddresses.Add(start + segmentOffset);
                if (data.Length > 0) tokens.Insert(j + 1, data);
                segmentOffset += ElementContent[j].Length;
             }
@@ -223,7 +223,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
                value = $"<{pointerValue:X6}>";
                if (pointerValue == Pointer.NULL) value = "<null>";
             } else if (segment.Type == ElementContentType.PCS) {
-               value = PCSString.Convert(model, offset, segment.Length);
+               value = model.TextConverter.Convert(model, offset, segment.Length);
             }
             var extraWhitespace = new string(' ', longestLabel - segment.Name.Length);
             result.Append($"{segment.Name}:{extraWhitespace} {value}");
@@ -243,7 +243,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
             while (fieldIndex < fields.Length && string.IsNullOrWhiteSpace(fields[fieldIndex])) fieldIndex += 1;
             if (fieldIndex >= fields.Length) break;
             var data = j < fields.Length ? fields[fieldIndex].Split(new[] { ':' }, 2).Last() : string.Empty;
-            if (ElementContent[j].Write(model, token, Start + segmentOffset, ref data)) {
+            if (ElementContent[j].Write(this.ElementContent, model, token, Start + segmentOffset, ref data)) {
                changeAddresses.Add(Start + segmentOffset);
             }
             segmentOffset += ElementContent[j].Length;
@@ -302,7 +302,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          if (targetSegment is ArrayRunEnumSegment enumSegment) {
             if (currentToken.StartsWith("\"")) currentToken = currentToken.Substring(1);
             if (currentToken.EndsWith("\"")) currentToken = currentToken.Substring(0, currentToken.Length - 1);
-            var optionText = enumSegment.GetOptions(model).Where(option => option.MatchesPartial(currentToken));
+            var optionText = enumSegment.GetOptions(model).Where(option => option?.MatchesPartial(currentToken) ?? false);
             results.AddRange(CreateEnumAutocompleteOptions(tokens, optionText, lineEnd));
          } else if (targetSegment is ArrayRunTupleSegment tupleGroup) {
             var tupleTokens = currentToken.Split(" ").ToList();
@@ -480,7 +480,21 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       public int ExtraLength => 0;
 
       public TableStreamRun Append(TableStreamRun run, ModelDelta token, int length) {
-         throw new NotImplementedException();
+         var naturalLength = run.Length;
+         var newRun = model.RelocateForExpansion(token, run, naturalLength + length * run.ElementLength);
+
+         // add new element data
+         for (int i = 0; i < run.ElementLength * length; i++) {
+            var prevIndex = newRun.Start + naturalLength + i - newRun.ElementLength * length;
+            while (prevIndex < newRun.Start) prevIndex += newRun.ElementLength;
+            byte prevData = prevIndex >= newRun.Start ? model[prevIndex] : default;
+            token.ChangeData(model, newRun.Start + naturalLength + i, prevData);
+         }
+
+         // remove excess element data
+         for (int i = naturalLength + length * run.ElementLength; i < naturalLength; i++) token.ChangeData(model, newRun.Start + i, 0xFF);
+
+         return new TableStreamRun(model, newRun.Start, run.PointerSources, run.FormatString, run.ElementContent, this, run.ElementCount + length);
       }
 
       public int GetCount(int start, int elementLength, IReadOnlyList<int> pointerSources) {
@@ -595,7 +609,8 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          var newRun = model.RelocateForExpansion(token, run, naturalLength + length * run.ElementLength);
          for (int i = 0; i < run.ElementLength * length; i++) {
             var prevIndex = newRun.Start + naturalLength + i - newRun.ElementLength * length;
-            byte prevData = prevIndex > newRun.Start ? model[prevIndex] : default;
+            while (prevIndex < newRun.Start) prevIndex += newRun.ElementLength;
+            byte prevData = prevIndex >= newRun.Start ? model[prevIndex] : default;
             token.ChangeData(model, newRun.Start + naturalLength + i, prevData);
          }
          for (int i = naturalLength + length * run.ElementLength; i < naturalLength; i++) if (model[newRun.Start + i] != 0xFF) token.ChangeData(model, newRun.Start + i, 0xFF);
@@ -665,8 +680,9 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          foreach (var source in pointerSources) {
             var offsets = parent.ConvertByteOffsetToArrayOffset(source);
             if (offsets.ElementIndex < 0 || offsets.ElementIndex > parent.ElementCount) continue;
-            if (model.ReadMultiByteValue(parent.Start + offsets.ElementIndex * parent.ElementLength + segmentOffset, segmentLength) != newValue) {
-               model.WriteMultiByteValue(parent.Start + offsets.ElementIndex * parent.ElementLength + segmentOffset, segmentLength, token, newValue);
+            var lengthAddress = parent.Start + offsets.ElementIndex * parent.ElementLength + segmentOffset;
+            if (model.ReadMultiByteValue(lengthAddress, segmentLength) != newValue) {
+               model.WriteMultiByteValue(lengthAddress, segmentLength, token, newValue);
             }
          }
       }

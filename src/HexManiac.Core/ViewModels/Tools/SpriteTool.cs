@@ -2,68 +2,18 @@
 using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using HavenSoft.HexManiac.Core.ViewModels.Visitors;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Input;
 
 namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
-   public interface IPixelViewModel : INotifyPropertyChanged {
-      short Transparent { get; }
-      int PixelWidth { get; }
-      int PixelHeight { get; }
-      short[] PixelData { get; }
-      double SpriteScale { get; }
-   }
-
-   public class ReadonlyPixelViewModel : ViewModelCore, IPixelViewModel {
-      public short Transparent { get; }
-      public int PixelWidth { get; }
-      public int PixelHeight { get; }
-      public short[] PixelData { get; }
-      public double SpriteScale => 1;
-
-      public ReadonlyPixelViewModel(SpriteFormat sf, short[] data, short transparent = -1) {
-         (PixelWidth, PixelHeight, PixelData) = (sf.TileWidth * 8, sf.TileHeight * 8, data);
-         Transparent = transparent;
-      }
-      private ReadonlyPixelViewModel(int width, int height, short[] data) {
-         (PixelWidth, PixelHeight, PixelData) = (width, height, data);
-         Transparent = -1;
-      }
-
-      public static IPixelViewModel Create(IDataModel model, ISpriteRun sprite, bool useTransparency = false) {
-         return SpriteDecorator.BuildSprite(model, sprite, useTransparency);
-      }
-
-      public static IPixelViewModel Crop(IPixelViewModel pixels, int x, int y, int width, int height) {
-         return TilemapTableRun.Crop(pixels, x, y, Math.Max(0, pixels.PixelWidth - width - x), Math.Max(0, pixels.PixelHeight - height - y));
-      }
-
-      public static IPixelViewModel Render(IPixelViewModel background, IPixelViewModel foreground, int x, int y) {
-         var data = new short[background.PixelData.Length];
-         Array.Copy(background.PixelData, data, background.PixelData.Length);
-
-         for (int yy = 0; yy < foreground.PixelHeight; yy++) {
-            for (int xx = 0; xx < foreground.PixelWidth; xx++) {
-               var pixel = foreground.PixelData[foreground.PixelWidth * yy + xx];
-               if (pixel == foreground.Transparent) continue;
-               if (x + xx >= background.PixelWidth || y + yy >= background.PixelHeight) continue;
-               int offset = background.PixelWidth * (y + yy) + (x + xx);
-               data[offset] = pixel;
-            }
-         }
-
-         return new ReadonlyPixelViewModel(background.PixelWidth, background.PixelHeight, data);
-      }
-   }
-
    public class SpriteTool : ViewModelCore, IToolViewModel, IPixelViewModel {
-      public const int MaxSpriteWidth = 275 - 17; // From UI: Panel Width - Scroll Bar Width
+      public const int MaxSpriteWidth = 500 - 17; // From UI: Panel Width - Scroll Bar Width
       private readonly ViewPort viewPort;
       private readonly ChangeHistory<ModelDelta> history;
       private readonly IDataModel model;
@@ -93,7 +43,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private bool showNoSpriteAnchorMessage = true;
       public bool ShowNoSpriteAnchorMessage { get => showNoSpriteAnchorMessage; set => Set(ref showNoSpriteAnchorMessage, value); }
 
-      public bool ShowSpriteProperties => !showNoSpriteAnchorMessage;
+      private bool showSpriteProperties = false;
+      public bool ShowSpriteProperties { get => showSpriteProperties; private set => Set(ref showSpriteProperties, value); }
 
       private string spriteWidthHeight;
       public string SpriteWidthHeight { get => spriteWidthHeight; set => Set(ref spriteWidthHeight, value, oldValue => UpdateSpriteFormat()); }
@@ -122,7 +73,11 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
 
       private void UpdateSpriteFormat() {
          var spriteRun = model.GetNextRun(spriteAddress) as ISpriteRun;
-         if (spriteRun == null || spriteRun.Start != spriteAddress) return;
+         bool isDefault = false;
+         if (spriteRun == null || spriteRun.Start != spriteAddress) {
+            spriteRun = new SpriteRun(model, spriteAddress, ReadDefaultSpriteFormat());
+            isDefault = true;
+         }
          var bits = SpriteIs256Color ? 8 : 4;
 
          if (spriteWidthHeight.ToLower().Trim() == "tiles") {
@@ -164,8 +119,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          } else if (spriteIsTilemap && !(spriteRun is LZRun)) {
             // uncompressed tilemaps are not currently supported, so just no-op.
          } else {
-            model.ObserveRunWritten(history.CurrentChange, spriteRun.Duplicate(newFormat));
-            viewPort.Refresh();
+            if (!isDefault) {
+               model.ObserveRunWritten(history.CurrentChange, spriteRun.Duplicate(newFormat));
+               viewPort.Refresh();
+            }
             LoadSprite();
          }
       }
@@ -252,6 +209,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (model.GetNextRun(spriteAddress) is ISpriteRun run && run.Start == spriteAddress) {
             var format = run.SpriteFormat;
             ShowNoSpriteAnchorMessage = false;
+            ShowSpriteProperties = true;
             spriteWidthHeight = format.TileWidth + "x" + format.TileHeight;
             if (run is ITilesetRun) spriteWidthHeight = "tiles";
             if (run is LzTilemapRun mapRun) {
@@ -271,6 +229,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             openInImageTab.RaiseCanExecuteChanged();
          } else {
             ShowNoSpriteAnchorMessage = true;
+            ShowSpriteProperties = true;
+            var format = ReadDefaultSpriteFormat();
+            spriteIsTilemap = false;
+            spritePaletteHint = format.PaletteHint ?? string.Empty;
          }
          NotifyPropertyChanged(nameof(ShowSpriteProperties));
       }
@@ -393,7 +355,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          var renderPalette = GetRenderPalette(run);
          for (int i = 0; i < spritePages; i++) {
             var (xPageOffset, yPageOffset) = choice == 0 ? (i * PixelWidth, 0) : (0, i * PixelHeight);
-            var pagePixels = run.GetPixels(model, i);
+            var pagePixels = run.GetPixels(model, i, -1);
             for (int x = 0; x < PixelWidth; x++) {
                for (int y = 0; y < PixelHeight; y++) {
                   manyPixels[xPageOffset + x, yPageOffset + y] = pagePixels[x, y];
@@ -472,6 +434,23 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       private static readonly char[] allowableCharacters = "0123456789ABCDEF<>NUL".ToCharArray();
       private static readonly char[] toLower = "NUL".ToCharArray();
       private static string SanitizeAddressText(string address) {
+         // allow for +/- on a specific digit of the address. Useful when searching for graphics.
+         while (address.Contains("+")) {
+            var index = address.IndexOf("+");
+            if (index < 1) break;
+            if (!int.TryParse(address.Substring(0, index), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int parsed)) break;
+            parsed += 1;
+            address = parsed.ToString("X" + index) + address.Substring(index + 1);
+         }
+         while (address.Contains("-")) {
+            var index = address.IndexOf("-");
+            if (index < 1) break;
+            if (!int.TryParse(address.Substring(0, index), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int parsed)) break;
+            parsed -= 1;
+            if (parsed < 0) parsed = 0;
+            address = parsed.ToString("X" + index) + address.Substring(index + 1);
+         }
+
          var characters = address.ToUpper().Where(c => c.IsAny(allowableCharacters)).ToArray();
          for (int i = 0; i < characters.Length; i++) {
             foreach (char c in toLower) {
@@ -615,14 +594,25 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          return copy;
       }
 
+      private SpriteFormat ReadDefaultSpriteFormat() {
+         if (spriteWidthHeight == null || !spriteWidthHeight.Contains("x")) spriteWidthHeight = "4x4";
+         var parts = spriteWidthHeight.Split('x');
+         if (!int.TryParse(parts[0], out int width)) width = 4;
+         if (parts.Length < 2 || !int.TryParse(parts[1], out int height)) height = 4;
+         return new SpriteFormat(4, width, height, null);
+      }
+
       private void LoadSprite() {
          var run = model.GetNextRun(spriteAddress) as ISpriteRun;
-         if (run == null) {
+         if (run == null || run.Start != spriteAddress) {
+            var format = ReadDefaultSpriteFormat();
+            run = new SpriteRun(model, spriteAddress, format);
             pixels = null;
             PixelWidth = 0;
             PixelHeight = 0;
-         } else {
-            pixels = run.GetPixels(model, spritePage);
+         }
+         if (0 <= spriteAddress && spriteAddress < model.Count) {
+            pixels = run.GetPixels(model, spritePage, -1);
             PixelWidth = pixels?.GetLength(0) ?? 0;
             PixelHeight = pixels?.GetLength(1) ?? 0;
          }
@@ -1035,13 +1025,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             foreach (var sprite in spritesToWeigh) {
                if (sprite.Pages == paletteRun.Pages) {
                   // weigh only the current page
-                  weightedPalettes[0] = weightedPalettes[0].Merge(WeightedPalette.Weigh(sprite.GetPixels(model, palPage), palettes[0], palettes[0].Count), out var _);
+                  weightedPalettes[0] = weightedPalettes[0].Merge(WeightedPalette.Weigh(sprite.GetPixels(model, palPage, -1), palettes[0], palettes[0].Count), out var _);
                } else {
                   // weigh all pages
                   // we generally expect to either only have one sprite page, and want to weigh every palette it uses...
                   // ... or have one palette page, and want to weight every sprite page that uses it.
                   for (int page = 0; page < sprite.Pages; page++) {
-                     var newWeights = WeightedPalette.Weigh(sprite.GetPixels(model, page), palettes, bits, initialBlankPages);
+                     var newWeights = WeightedPalette.Weigh(sprite.GetPixels(model, page, -1), palettes, bits, initialBlankPages);
                      for (int j = 0; j < weightedPalettes.Count; j++) weightedPalettes[j] = weightedPalettes[j].Merge(newWeights[j], out var _);
                   }
                }
@@ -1050,7 +1040,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (spriteRun.Pages != paletteRun.Pages) {
             for (int page = 0; page < spriteRun.Pages; page++) {
                if (page == spritePage) continue;
-               var newWeights = WeightedPalette.Weigh(spriteRun.GetPixels(model, page), palettes, bits, initialBlankPages);
+               var newWeights = WeightedPalette.Weigh(spriteRun.GetPixels(model, page, -1), palettes, bits, initialBlankPages);
                for (int j = 0; j < weightedPalettes.Count; j++) weightedPalettes[j] = weightedPalettes[j].Merge(newWeights[j], out var _);
             }
          }
@@ -1174,7 +1164,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          }
 
          var needWriteSpriteData = true;
-         var problemPixel = TryReorderPalettesFromMatchingSprite(palettes, image, spriteRun.GetPixels(model, spritePage));
+         var problemPixel = TryReorderPalettesFromMatchingSprite(palettes, image, spriteRun.GetPixels(model, spritePage, -1));
          if (problemPixel.X == PixelWidth && problemPixel.Y == PixelHeight) {
             // palette is reordered, everything matches up with the original data. No need to write sprite data.
             needWriteSpriteData = false;
@@ -1252,13 +1242,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             foreach (var sprite in spritesToWeigh) {
                if (sprite.Pages == paletteRun.Pages) {
                   // weigh only the current page
-                  weightedPalettes[0] = weightedPalettes[0].Merge(WeightedPalette.Weigh(sprite.GetPixels(model, palPage), palettes[0], palettes[0].Count), out var _);
+                  weightedPalettes[0] = weightedPalettes[0].Merge(WeightedPalette.Weigh(sprite.GetPixels(model, palPage, -1), palettes[0], palettes[0].Count), out var _);
                } else {
                   // weigh all pages
                   // we generally expect to either only have one sprite page, and want to weigh every palette it uses...
                   // ... or have one palette page, and want to weight every sprite page that uses it.
                   for (int page = 0; page < sprite.Pages; page++) {
-                     var newWeights = WeightedPalette.Weigh(sprite.GetPixels(model, page), palettes, bits, initialBlankPages);
+                     var newWeights = WeightedPalette.Weigh(sprite.GetPixels(model, page, -1), palettes, bits, initialBlankPages);
                      for (int j = 0; j < weightedPalettes.Count; j++) weightedPalettes[j] = weightedPalettes[j].Merge(newWeights[j], out var _);
                   }
                }
@@ -1267,7 +1257,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (spriteRun.Pages != paletteRun.Pages) {
             for (int page = 0; page < spriteRun.Pages; page++) {
                if (page == spritePage) continue;
-               var newWeights = WeightedPalette.Weigh(spriteRun.GetPixels(model, page), palettes, bits, initialBlankPages);
+               var newWeights = WeightedPalette.Weigh(spriteRun.GetPixels(model, page, -1), palettes, bits, initialBlankPages);
                for (int j = 0; j < weightedPalettes.Count; j++) weightedPalettes[j] = weightedPalettes[j].Merge(newWeights[j], out var _);
             }
          }
@@ -1284,7 +1274,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
             else newPalettes[i] = palettes[i];
          }
 
-         TryReorderPalettesFromMatchingSprite(newPalettes, image, spriteRun.GetPixels(model, spritePage));
+         TryReorderPalettesFromMatchingSprite(newPalettes, image, spriteRun.GetPixels(model, spritePage, -1));
          var indexedTiles = new int[tiles.Length][,];
          for (int i = 0; i < indexedTiles.Length; i++) indexedTiles[i] = Index(tiles[i], newPalettes, usablePalPages, spriteRun.SpriteFormat.BitsPerPixel, initialBlankPages);
          var spriteData = Detilize(indexedTiles, spriteRun.SpriteFormat.TileWidth);
@@ -1595,7 +1585,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       /// Update a sprite to use a new palette
       /// </summary>
       public static ISpriteRun Update(IDataModel model, ModelDelta token, ISpriteRun spriteRun, IReadOnlyList<short>[] originalPalettes, IReadOnlyList<short>[] newPalettes, int initialPaletteOffset, int page) {
-         var pixels = spriteRun.GetPixels(model, page);
+         var pixels = spriteRun.GetPixels(model, page, -1);
 
          if (spriteRun is LzTilemapRun tileMap) {
             var image = SpriteTool.Render(pixels, originalPalettes.SelectMany(s => s).ToList(), initialPaletteOffset, page);

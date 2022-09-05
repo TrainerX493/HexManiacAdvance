@@ -187,7 +187,7 @@ namespace HavenSoft.HexManiac.Core.Models {
                if (bool.TryParse(cleanLine.Split("=")[1].Trim(), out var showRawIV)) ShowRawIVByteForTrainer = showRawIV;
             }
 
-            if (cleanLine.Contains('=') && int.TryParse(cleanLine.Split('=')[0].Trim(), out int currentItemIndex)) {
+            if (cleanLine.Contains('=') && cleanLine.Split('=')[0].Trim().TryParseInt(out int currentItemIndex)) {
                if (currentItemChildren == null) currentItemChildren = new List<string>();
                while (currentItemChildren.Count < currentItemIndex) currentItemChildren.Add(null);
                if (!cleanLine.Split("'''")[0].Contains("[")) {
@@ -227,7 +227,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          if (previousVersion == null && currentVersion != null) return true;
 
          if (previousVersion.StartsWith("v")) previousVersion = previousVersion.Substring(1);
-         if (currentVersion.StartsWith("v")) currentVersion = currentVersion.Substring(1);
+         while (currentVersion.Contains("v")) currentVersion = currentVersion.Substring(1);
 
          while (previousVersion.Count(c => c == '.') < currentVersion.Count(c => c == '.')) previousVersion += ".0";
          while (currentVersion.Count(c => c == '.') < previousVersion.Count(c => c == '.')) currentVersion += ".0";
@@ -326,6 +326,7 @@ namespace HavenSoft.HexManiac.Core.Models {
          foreach (var group in TableGroups) {
             lines.Add("[[TableGroup]]");
             lines.Add($"Name = '''{group.GroupName}'''");
+            lines.Add($"DefaultHash = '''{group.Hash:X8}'''");
             lines.Add($"0 = [");
             foreach (var table in group.Tables) {
                lines.Add($"   '''{table}''',");

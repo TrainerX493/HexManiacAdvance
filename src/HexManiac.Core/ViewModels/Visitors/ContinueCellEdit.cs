@@ -41,7 +41,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
             }
 
             if (UnderEdit.CurrentText[0] == '.') {
-               Result = char.IsLetterOrDigit(Input) || Input.IsAny(" .+-".ToCharArray());
+               Result = char.IsLetterOrDigit(Input) || Input.IsAny(" .+-=".ToCharArray());
                return;
             }
          }
@@ -75,7 +75,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
          // if this is the start of a text segment, crop off the leading " before trying to convert to a byte
          if (pcs.Position == 0 && currentText[0] == StringDelimeter) currentText = currentText.Substring(1);
 
-         Result = PCSString.PCS.Any(str => str != null && str.StartsWith(currentText + Input));
+         Result = PCSString.PCS.Any(str => str != null && str.StartsWith(currentText + Input)) ||
+            Model.TextConverter.AnyMacroStartsWith(currentText + Input);
       }
 
       public void Visit(EscapedPCS pcs, byte data) {
@@ -89,13 +90,15 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
       // not possible: all ascii edits are single-stroke
       public void Visit(Ascii ascii, byte data) => throw new NotImplementedException();
 
+      public void Visit(Braille braille, byte data) => throw new NotImplementedException();
+
       public void Visit(Integer integer, byte data) {
          Result = integer.CanStartWithCharacter(Input) || char.IsWhiteSpace(Input) || Input == ')';
       }
 
       public void Visit(IntegerEnum integer, byte data) {
          Result = integer.CanStartWithCharacter(Input) ||
-            ".'~|,)".Contains(Input) ||
+            ".'~|,_&%)".Contains(Input) ||
             char.IsWhiteSpace(Input);
       }
 

@@ -24,6 +24,8 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
    }
 
    public class ArrayRunElementSegment {
+      protected ITextConverter TextConverter { get; }
+
       public string Name { get; }
       public ElementContentType Type { get; }
       public int Length { get; }
@@ -39,13 +41,13 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          }
       }
 
-      public ArrayRunElementSegment(string name, ElementContentType type, int length) => (Name, Type, Length) = (name, type, length);
+      public ArrayRunElementSegment(string name, ElementContentType type, int length, ITextConverter converter = null) => (Name, Type, Length, TextConverter) = (name, type, length, converter);
 
       private bool recursionStopper;
       public virtual string ToText(IDataModel rawData, int offset, bool deep = false) {
          switch (Type) {
             case ElementContentType.PCS:
-               return PCSString.Convert(rawData, offset, Length);
+               return rawData.TextConverter.Convert(rawData, offset, Length);
             case ElementContentType.Integer:
                return ToInteger(rawData, offset, Length).ToString();
             case ElementContentType.Pointer:
@@ -87,7 +89,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       /// <returns>
       /// true if the data was changed.
       /// </returns>
-      public virtual bool Write(IDataModel model, ModelDelta token, int start, ref string data) {
+      public virtual bool Write(IReadOnlyList<ArrayRunElementSegment> parentSegments, IDataModel model, ModelDelta token, int start, ref string data) {
          if (data.StartsWith("(") && data.EndsWith(")")) data = data.Substring(1, data.Length - 2);
          var remainder = string.Empty;
          if (Type != ElementContentType.PCS) {
@@ -98,7 +100,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
 
          switch (Type) {
             case ElementContentType.PCS:
-               var bytes = PCSString.Convert(data);
+               var bytes = TextConverter.Convert(data, out var _);
                while (bytes.Count > Length) bytes.RemoveAt(bytes.Count - 1);
                if (!bytes.Contains(0xFF)) bytes[bytes.Count - 1] = 0xFF;
                while (bytes.Count < Length) bytes.Add(0);
@@ -124,7 +126,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
 
                if (this is not ArrayRunPointerSegment pointerSegment || pointerSegment.DestinationDataMatchesPointerFormat(model, token, start, address, null, -1)) {
                   var currentDestination = model.ReadPointer(start);
-                  model.UpdateArrayPointer(token, this, null, default, start, address);
+                  model.UpdateArrayPointer(token, this, parentSegments, default, start, address);
                   return currentDestination != address;
                } else {
                   var oldDestination = model.ReadPointer(start);
@@ -230,7 +232,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          for (int i = 0; i < tableRun.ElementCount; i++) {
             var destination = model.ReadPointer(tableRun.Start + tableRun.ElementLength * i);
             if (!(model.GetNextRun(destination) is ISpriteRun run)) return defaultOptions;
-            var sprite = run.GetPixels(model, 0);
+            var sprite = run.GetPixels(model, 0, i);
             var paletteAddress = SpriteTool.FindMatchingPalette(model, run, 0);
             var paletteRun = model.GetNextRun(paletteAddress) as IPaletteRun;
             var palette = paletteRun?.GetPalette(model, paletteRun.PaletteFormat.InitialBlankPages) ?? TileViewModel.CreateDefaultPalette(16);
@@ -242,18 +244,19 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          return imageOptions;
       }
 
-      public override bool Write(IDataModel model, ModelDelta token, int start, ref string data) {
+      public override bool Write(IReadOnlyList<ArrayRunElementSegment> parentSegments, IDataModel model, ModelDelta token, int start, ref string data) {
          if (data.StartsWith("(") && data.EndsWith(")")) data = data.Substring(1, data.Length - 2);
          var tokens = TableStreamRun.Tokenize(data);
          var remainder = ", ".Join(tokens.Skip(1));
+         if (tokens.Count == 0) return false;
          data = tokens[0];
          bool result;
 
          if (!TryParse(model, data, out int value)) {
-            result = base.Write(model, token, start, ref data);
+            result = base.Write(parentSegments, model, token, start, ref data);
          } else {
             data = value.ToString();
-            result = base.Write(model, token, start, ref data);
+            result = base.Write(parentSegments, model, token, start, ref data);
          }
 
          data = remainder;
@@ -309,7 +312,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       public IEnumerable<string> GetOptions(IDataModel model) => GetOptions(model, EnumName);
 
       public static IEnumerable<string> GetOptions(IDataModel model, string enumName) {
-         if (int.TryParse(enumName, out var result)) return result.Range().Select(i => i.ToString());
+         if (enumName.TryParseInt(out var result)) return result.Range().Select(i => i.ToString());
          IEnumerable<string> options = model.GetOptions(enumName);
 
          // we _need_ options for the table tool
@@ -355,7 +358,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
       }
 
       public ArrayRunElementSegment CreateConcrete(IDataModel model, int offset) {
-         var defaultConcrete = new ArrayRunElementSegment(Name, ElementContentType.Integer, Length);
+         var defaultConcrete = new ArrayRunElementSegment(Name, ElementContentType.Integer, Length, TextConverter);
          var table = (ITableRun)model.GetNextRun(offset);
          int matchFieldOffset = 0;
          int matchFieldIndex = 0;
@@ -384,7 +387,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          return hex;
       }
 
-      public override bool Write(IDataModel model, ModelDelta token, int start, ref string data) {
+      public override bool Write(IReadOnlyList<ArrayRunElementSegment> parentSegments, IDataModel model, ModelDelta token, int start, ref string data) {
          if (data.StartsWith("(") && data.EndsWith(")")) data = data.Substring(1, data.Length - 2);
          var remainder = string.Empty;
          if (Type != ElementContentType.PCS) {
@@ -439,7 +442,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          return result.Trim() + ")";
       }
 
-      public override bool Write(IDataModel model, ModelDelta token, int start, ref string data) {
+      public override bool Write(IReadOnlyList<ArrayRunElementSegment> parentSegments, IDataModel model, ModelDelta token, int start, ref string data) {
          var parts = data.Split(new[] { "(", ")", " " }, StringSplitOptions.RemoveEmptyEntries).ToList();
          TableStreamRun.Recombine(parts, "\"", "\"");
          data = string.Empty;
@@ -599,7 +602,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
          return result.ToString();
       }
 
-      public override bool Write(IDataModel model, ModelDelta token, int start, ref string data) {
+      public override bool Write(IReadOnlyList<ArrayRunElementSegment> parentSegments, IDataModel model, ModelDelta token, int start, ref string data) {
          var anyChanges = false;
          for (int i = 0; i < Length && i * 2 + 1 < data.Length; i++) {
             if (!byte.TryParse(data.Substring(i * 2, 2), NumberStyles.HexNumber, CultureInfo.CurrentCulture, out var value)) value = 0;

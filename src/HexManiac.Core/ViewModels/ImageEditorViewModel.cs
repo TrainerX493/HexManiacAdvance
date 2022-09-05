@@ -2,6 +2,7 @@
 using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using HavenSoft.HexManiac.Core.ViewModels.Tools;
 using System;
 using System.Collections.Generic;
@@ -15,6 +16,10 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
    // all x/y terms are in 'pixels' from the center of the image viewing area.
    // cursor size is in terms of destination pixels (1x1, 2x2, 4x4, 8x8)
    // cursor sprite position is in terms of the sprite (ranging from 0,0 to width,height)
+
+   public class ImageEditorViewModelCreationException : Exception {
+      public ImageEditorViewModelCreationException(string message) : base(message) { }
+   }
 
    public class ImageEditorViewModel : ViewModelCore, ITabContent, IPixelViewModel, IRaiseMessageTab {
       public const int MaxZoom = 24;
@@ -229,16 +234,19 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
          var offset = currentTable.ConvertByteOffsetToArrayOffset(SpritePointer);
          foreach (var table in model.GetRelatedArrays(currentTable)) {
-            if (!(table.ElementContent[0] is ArrayRunPointerSegment pSegment)) continue;
-            var spritePointer = table.Start + table.ElementLength * offset.ElementIndex;
-            var spriteAddress = model.ReadPointer(spritePointer);
-            var spriteRun = model.GetNextRun(spriteAddress) as ISpriteRun;
-            if (spriteRun == null || spriteRun.Start != spriteAddress || spriteRun.FormatString != pSegment.InnerFormat) continue;
-            foreach (var palette in spriteRun.FindRelatedPalettes(model, spritePointer, includeAllTableIndex: true)) {
-               EditOptions.Add(new EditOption(model, spritePointer, palette.PointerSources[0]));
-            }
-            if (spriteRun.SpriteFormat.BitsPerPixel < 4) {
-               EditOptions.Add(new EditOption(model, spritePointer, Pointer.NULL));
+            for (int i = 0; i < table.ElementContent.Count; i++) {
+               var segmentStart = table.ElementContent.Take(i).Sum(seg => seg.Length);
+               if (!(table.ElementContent[i] is ArrayRunPointerSegment pSegment)) continue;
+               var spritePointer = table.Start + table.ElementLength * offset.ElementIndex + segmentStart;
+               var spriteAddress = model.ReadPointer(spritePointer);
+               var spriteRun = model.GetNextRun(spriteAddress) as ISpriteRun;
+               if (spriteRun == null || spriteRun.Start != spriteAddress || spriteRun.FormatString != pSegment.InnerFormat) continue;
+               foreach (var palette in spriteRun.FindRelatedPalettes(model, spritePointer, includeAllTableIndex: true)) {
+                  EditOptions.Add(new EditOption(model, spritePointer, palette.PointerSources[0]));
+               }
+               if (spriteRun.SpriteFormat.BitsPerPixel < 4) {
+                  EditOptions.Add(new EditOption(model, spritePointer, Pointer.NULL));
+               }
             }
          }
 
@@ -444,9 +452,14 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          var inputRun = model.GetNextRun(address);
          var spriteRun = inputRun as ISpriteRun;
          var palRun = inputRun as IPaletteRun;
-         if (spriteRun == null) spriteRun = palRun.FindDependentSprites(model).First();
+         if (spriteRun == null && palRun == null) throw new ImageEditorViewModelCreationException($"Input {address:X6} was not a sprite or palette.");
+         if (spriteRun == null) spriteRun = palRun.FindDependentSprites(model).FirstOrDefault();
+         if (spriteRun == null) throw new ImageEditorViewModelCreationException($"Could not find sprite for palette {palRun.Start:X6}");
+         if (spriteRun.PointerSources.Count == 0) throw new ImageEditorViewModelCreationException($"Could not find pointer to sprite at {spriteRun.Start:X6}");
          if (palRun == null && spriteRun.SpriteFormat.BitsPerPixel > 2) palRun = spriteRun.FindRelatedPalettes(model).FirstOrDefault();
          if (palRun == null && spriteRun.SpriteFormat.BitsPerPixel > 2) palRun = model.GetNextRun(toolPaletteAddress) as IPaletteRun;
+         if (palRun != null && palRun.PointerSources.Count == 0) throw new ImageEditorViewModelCreationException($"Could not find pointer to palette at {palRun.Start:X6}");
+
          SpritePointer = spriteRun.PointerSources[0];
          PalettePointer = palRun?.PointerSources[0] ?? Pointer.NULL;
          Palette = new PaletteCollection(this, model, history) {
@@ -612,7 +625,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
          // tilemap may have been repointed: recalculate
          if (spriteRun is ITilemapRun tilemapRun) tilemapRun.FindMatchingTileset(model);
 
-         pixels = (spriteRun is LzTilesetRun tsRun) ? tsRun.GetPixels(model, SpritePage, CurrentTilesetWidth) : spriteRun.GetPixels(model, SpritePage);
+         pixels = (spriteRun is LzTilesetRun tsRun) ? tsRun.GetPixels(model, SpritePage, CurrentTilesetWidth) : spriteRun.GetPixels(model, SpritePage, -1);
          Render();
          RefreshPaletteColors(spriteRun.SpriteFormat);
          SetupPageOptions();
@@ -680,7 +693,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       private void Render() {
          var spriteAddress = model.ReadPointer(SpritePointer);
          var spriteRun = (ISpriteRun)model.GetNextRun(spriteAddress);
-         var readPixels = (spriteRun is LzTilesetRun tsRun) ? tsRun.GetPixels(model, SpritePage, CurrentTilesetWidth) : spriteRun.GetPixels(model, SpritePage);
+         var readPixels = (spriteRun is LzTilesetRun tsRun) ? tsRun.GetPixels(model, SpritePage, CurrentTilesetWidth) : spriteRun.GetPixels(model, SpritePage, -1);
 
          var palRun = ReadPalette();
 
@@ -815,7 +828,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
                // allow editing the selected palette to match the tile if a tile is selected
                var pageChange = (int)Math.Floor((float) parent.PaletteIndex(tile[0, 0]) / parent.Palette.Elements.Count);
-               if (drawWidth == 8 && drawHeight == 8 && pageChange != 0) {
+               if (!spriteOnlyExpects16Colors && drawWidth == 8 && drawHeight == 8 && pageChange != 0) {
                   parent.PalettePage += pageChange;
                   pageChange = 0;
                }
@@ -1435,7 +1448,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
             var tilemapRun = (ITilemapRun)parent.model.GetNextRun(spriteAddress);
             tilemapRun.FindMatchingTileset(parent.model);
 
-            parent.pixels = tilemapRun.GetPixels(parent.model, parent.SpritePage);
+            parent.pixels = tilemapRun.GetPixels(parent.model, parent.SpritePage, -1);
             parent.Render();
          }
 
@@ -1519,7 +1532,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
       public int PalettePointer { get; }
       public short[] PixelData { get; private set; }
 
-      public double SpriteScale => 1;
+      public double SpriteScale => PixelWidth > 240 || PixelHeight > 160 ? .5 : 1;
 
       public EditOption(IDataModel model, int spritePointer, int palettePointer) {
          (this.model, SpritePointer, PalettePointer) = (model, spritePointer, palettePointer);
@@ -1543,7 +1556,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels {
 
          var (colors, _, initialBlankPages) = ImageEditorViewModel.ReadPalette(model, PalettePointer, sprite.SpriteFormat.BitsPerPixel);
 
-         var pixels = sprite.GetPixels(model, 0);
+         var pixels = sprite.GetPixels(model, 0, -1);
          PixelData = SpriteTool.Render(pixels, colors, initialBlankPages, 0);
          NotifyPropertyChanged(nameof(PixelData));
       }

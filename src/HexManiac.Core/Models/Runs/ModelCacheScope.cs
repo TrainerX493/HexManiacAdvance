@@ -1,6 +1,6 @@
 ﻿using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
-using HavenSoft.HexManiac.Core.ViewModels.Tools;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -111,7 +111,7 @@ namespace HavenSoft.HexManiac.Core.Models.Runs {
                if (elementLength < 1) return new string[0]; // contents must be a valid string to be used as options
             }
 
-            var valueWithQuotes = PCSString.Convert(model, elementStart, elementLength)?.Replace(Environment.NewLine, string.Empty).Trim() ?? string.Empty;
+            var valueWithQuotes = model.TextConverter.Convert(model, elementStart, elementLength)?.Replace(Environment.NewLine, string.Empty).Trim() ?? string.Empty;
 
             if (valueWithQuotes.Contains(' ')) {
                AddResult(resultCache, results, valueWithQuotes);

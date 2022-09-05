@@ -3,6 +3,7 @@ using HavenSoft.HexManiac.Core.Models;
 using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels;
+using HavenSoft.HexManiac.Core.ViewModels.Map;
 using HavenSoft.HexManiac.Core.ViewModels.QuickEditItems;
 using HavenSoft.HexManiac.WPF.Controls;
 using HavenSoft.HexManiac.WPF.Implementations;
@@ -91,6 +92,14 @@ namespace HavenSoft.HexManiac.WPF.Windows {
          text.AppendLine("-------------------------------------------");
          text.AppendLine(Environment.NewLine);
          File.AppendAllText("crash.log", text.ToString());
+         var shortError = Environment.NewLine.Join(text.ToString().SplitLines().Take(20));
+         shortError = Environment.NewLine.Join(new[] {
+            $"~I got a crash! ({ViewModel.Singletons.MetadataInfo.VersionNumber})",
+            "```",
+            shortError + "...",
+            "```",
+            "Let me tell you what I was doing right before I got the crash:",
+         });
          var exceptionInfo = ExtractExceptionInfo(e.Exception);
          FileSystem.ShowCustomMessageBox(
             "An unhandled error occured. Please report it on Discord or open an issue on GitHub." + Environment.NewLine +
@@ -111,7 +120,8 @@ namespace HavenSoft.HexManiac.WPF.Windows {
                   "Notes from crash.log: " + Environment.NewLine + Environment.NewLine +
                   "    " + text.ToString().Replace(Environment.NewLine, Environment.NewLine + "    ")
                )
-            )
+            ),
+            new ProcessModel("Copy a crash message to the clipboard", shortError)
          );
          e.Handled = true;
       }
@@ -187,7 +197,7 @@ namespace HavenSoft.HexManiac.WPF.Windows {
                Command = command
             });
          }
-         ((RomOverview)ViewModel.QuickEditsMisc[0]).EditSelected += (sender, e) => DeveloperRenderRomOverview(default, default);
+         ((RomOverview)ViewModel.QuickEditsMisc[0]).EditSelected += (sender, e) => DeveloperRenderRomOverview();
       }
 
       private ICommand CreateQuickEditCommand(IQuickEditItem edit) {
@@ -412,7 +422,7 @@ namespace HavenSoft.HexManiac.WPF.Windows {
       }
 
       private void FocusGotoBox(object sender = default, EventArgs e = default) {
-         if (!GotoBox.IsFocused) FocusTextBox(GotoBox.GetTextBox());
+         if (!GotoBox.GetTextBox().IsKeyboardFocused) FocusTextBox(GotoBox.GetTextBox());
       }
 
       private void FocusTextBox(TextBox textBox) {
@@ -523,7 +533,7 @@ namespace HavenSoft.HexManiac.WPF.Windows {
 
       private void DeveloperWriteTrace(object sender, RoutedEventArgs e) => Trace.WriteLine("Trace");
 
-      private void DeveloperRenderRomOverview(object sender, RoutedEventArgs e) {
+      private void DeveloperRenderRomOverview() {
          var tab = (ViewPort)ViewModel.SelectedTab;
          var model = tab.Model;
          int BlockSize = 64, BlockWidth = 16, BlockHeight = 16, BytesPerPixel = 16;
@@ -550,6 +560,7 @@ namespace HavenSoft.HexManiac.WPF.Windows {
                var blockOffset = blockOffsetY * imageWidth + blockOffsetX;
                var pixelIndex = blockStart + blockOffset;
                var address = (i * BlockSize * BlockSize * BytesPerPixel) + j;
+               if (address < 0 || address >= model.Count) break;
                var run = model.GetNextRun(address);
                if (model[address] == 0xFF) {
                   imageData[pixelIndex] = backlight;
@@ -579,22 +590,17 @@ namespace HavenSoft.HexManiac.WPF.Windows {
          window.Show();
       }
 
-      private void DeveloperGetSHA1(object sender, EventArgs e) {
-         var tab = (ViewPort)ViewModel.SelectedTab;
-         var sha = SHA1.Create();
-         var result = string.Concat(sha.ComputeHash(tab.Model.RawData).Select(b => b.ToString("X2")));
-         FileSystem.ShowCustomMessageBox(result, showYesNoCancel: false);
-      }
-
-      private void DeveloperGetCRC32(object sender, EventArgs e) {
-         var tab = (ViewPort)ViewModel.SelectedTab;
-         var crc = Force.Crc32.Crc32Algorithm.Compute(tab.Model.RawData);
-         FileSystem.ShowCustomMessageBox(crc.ToString("X8"), showYesNoCancel: false);
-      }
-
       private void DeveloperReloadMetadata(object sender, EventArgs e) {
          var tab = (ViewPort)ViewModel.SelectedTab;
          tab.ConsiderReload(FileSystem);
+      }
+
+      private void DeveloperOpenMapEditor(object sender, EventArgs e) {
+         if (!ViewModel.ShowDeveloperMenu) return;
+         if (ViewModel.SelectedTab is ViewPort viewPort) {
+            var newTab = new MapEditorViewModel(viewPort.Model, viewPort.ChangeHistory, ViewModel.Singletons);
+            ViewModel.Add(newTab);
+         }
       }
 
       private static int Color(string name) {
@@ -616,6 +622,10 @@ namespace HavenSoft.HexManiac.WPF.Windows {
          textbox.SelectAll();
          textbox.Focus();
          e.Handled = true;
+      }
+
+      private void SetPythonPanelWidth(object sender, RoutedEventArgs e) {
+         TabContainer.ColumnDefinitions[2].Width = new GridLength(300);
       }
    }
 

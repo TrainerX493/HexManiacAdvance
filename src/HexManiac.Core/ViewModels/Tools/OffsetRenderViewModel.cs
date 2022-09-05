@@ -1,7 +1,7 @@
-﻿using HavenSoft.HexManiac.Core.Models;
-using HavenSoft.HexManiac.Core.Models.Runs;
+﻿using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,6 +32,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
       #endregion
 
       public event EventHandler DataChanged;
+      public event EventHandler DataSelected;
 
       public OffsetRenderViewModel(IEditableViewPort viewPort, ArrayRunOffsetRenderSegment segment, int itemAddress) {
          this.viewPort = viewPort;
@@ -44,9 +45,7 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (offsetTable.ElementContent.Select(field => field.Name).Contains(segment.TargetFieldX)) {
             xOffset = offsetTable.ReadValue(model, segmentOffset.ElementIndex, segment.TargetFieldX);
          }
-         if (offsetTable.ElementContent.Select(field => field.Name).Contains(segment.TargetFieldY)) {
-            yOffset = offsetTable.ReadValue(model, segmentOffset.ElementIndex, segment.TargetFieldY);
-         }
+         yOffset = ParseContent(offsetTable, segment.TargetFieldY, itemAddress);
 
          // find/crop background
          if (model.GetNextRun(model.GetAddressFromAnchor(new(), -1, segment.Background)) is not ISpriteRun spriteRun) return;
@@ -59,6 +58,30 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Tools {
          if (model.GetNextRun(imageAddress) is not ISpriteRun foregroundRun) return;
          var foreground = ReadonlyPixelViewModel.Create(model, foregroundRun, true);
          PixelViewModel = ReadonlyPixelViewModel.Render(PixelViewModel, foreground, segment.X + xOffset, segment.Y + yOffset);
+      }
+
+      public int ParseContent(ITableRun defaultTable, string text, int itemAddress) {
+         var parts = text.Split("-");
+         if (parts.Length == 2) {
+            return ParseContent(defaultTable, parts[0], itemAddress) - ParseContent(defaultTable, parts[1], itemAddress);
+         }
+
+         var segmentOffset = defaultTable.ConvertByteOffsetToArrayOffset(itemAddress);
+
+         parts = text.Split("/");
+         if (parts.Length == 2) {
+            var table = viewPort.Model.GetTable(parts[0]);
+            if (table != null) {
+               itemAddress = table.Start + table.ElementLength * segmentOffset.ElementIndex;
+               return ParseContent(table, parts[1], itemAddress);
+            }
+         }
+
+         if (defaultTable.ElementContent.Select(field => field.Name).Contains(text)) {
+            return defaultTable.ReadValue(viewPort.Model, segmentOffset.ElementIndex, text);
+         }
+
+         return 0;
       }
 
       public bool TryCopy(IArrayElementViewModel other) {

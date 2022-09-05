@@ -194,24 +194,31 @@ namespace HavenSoft.HexManiac.WPF.Controls {
       public static readonly DependencyProperty HorizontalScrollValueProperty = DependencyProperty.Register("HorizontalScrollValue", typeof(double), typeof(HexContent), new FrameworkPropertyMetadata(0.0, RequestInvalidateVisual));
 
       DoubleAnimation lastAnimation;
+      double targetValue;
       private void MakeSelectionEndOnScreen() {
          if (!(ViewPort is IEditableViewPort viewPort)) return;
          var x = viewPort.SelectionEnd.X;
          var newDesiredValue = HorizontalScrollValue;
+         if (lastAnimation != null) newDesiredValue = targetValue;
          if (HorizontalScrollValue > x * CellWidth) {
             // can't see left edge of cell
             newDesiredValue = x * CellWidth;
-         } else if (HorizontalScrollValue + ActualWidth < (x + 1) * CellWidth) {
+         }
+         if (newDesiredValue + ActualWidth < (x + 1) * CellWidth) {
             // can't see right edge of cell
             newDesiredValue = (x + 1) * CellWidth - ActualWidth;
          }
 
-         if (newDesiredValue != HorizontalScrollValue) {
+         if (newDesiredValue != HorizontalScrollValue || lastAnimation != null) {
             var duration = new Duration(TimeSpan.FromMilliseconds(200));
             var animation = new DoubleAnimation(newDesiredValue, duration) { DecelerationRatio = 1, FillBehavior = FillBehavior.Stop };
             lastAnimation = animation;
+            targetValue = newDesiredValue;
             animation.Completed += (sender, e) => {
-               if (animation == lastAnimation) HorizontalScrollValue = newDesiredValue;
+               if (animation == lastAnimation) {
+                  HorizontalScrollValue = newDesiredValue;
+                  lastAnimation = null;
+               }
             };
             BeginAnimation(HorizontalScrollValueProperty, animation);
          }
@@ -379,23 +386,7 @@ namespace HavenSoft.HexManiac.WPF.Controls {
          var newMouseOverPoint = ControlCoordinatesToModelCoordinates(e);
          if (!newMouseOverPoint.Equals(mouseOverPoint)) {
             mouseOverPoint = newMouseOverPoint;
-            var format = ViewPort[newMouseOverPoint.X, newMouseOverPoint.Y].Format;
-
-            bool needClearToolTip = true;
-            if (ViewPort is ViewPort viewPort1) {
-               var source = viewPort1.ConvertViewPointToAddress(newMouseOverPoint);
-               if (format is IDataFormatInstance dfi) source = dfi.Source;
-               if (source == previousSource && ToolTipService.GetIsEnabled(this)) {
-                  // already set
-                  needClearToolTip = false;
-               } else if (MakeNewToolTip(format)) {
-                  previousSource = source;
-                  needClearToolTip = false;
-               }
-            }
-            if (needClearToolTip) {
-               ClearTooltip();
-            }
+            UpdateTooltip(newMouseOverPoint);
          }
          if (!IsMouseCaptured) return;
 
@@ -417,6 +408,34 @@ namespace HavenSoft.HexManiac.WPF.Controls {
          }
       }
 
+      private void UpdateTooltip(ModelPoint newMouseOverPoint) {
+         IDataFormat format;
+         try {
+            format = ViewPort[newMouseOverPoint.X, newMouseOverPoint.Y].Format;
+         } catch (InvalidOperationException) {
+            // if the user moves the mouse during reload, there's a chance that this tries to query the model runs while they're reloading.
+            // if that happens, just skip the tooltip update
+            ClearTooltip();
+            return;
+         }
+
+         bool needClearToolTip = true;
+         if (ViewPort is ViewPort viewPort1) {
+            var source = viewPort1.ConvertViewPointToAddress(newMouseOverPoint);
+            if (format is IDataFormatInstance dfi) source = dfi.Source;
+            if (source == previousSource && ToolTipService.GetIsEnabled(this)) {
+               // already set
+               needClearToolTip = false;
+            } else if (MakeNewToolTip(format)) {
+               previousSource = source;
+               needClearToolTip = false;
+            }
+         }
+         if (needClearToolTip) {
+            ClearTooltip();
+         }
+      }
+
       private void ClearTooltip() {
          ToolTipService.SetIsEnabled(this, false);
          ToolTip.IsOpen = false;
@@ -432,7 +451,7 @@ namespace HavenSoft.HexManiac.WPF.Controls {
             if (ViewPort is ViewPort editableViewPort) {
                if (!editableViewPort.IsSelected(p)) editableViewPort.SelectionStart = p;
             }
-            var items = ViewPort.GetContextMenuItems(p);
+            var items = ViewPort.GetContextMenuItems(p, FileSystem);
             children.AddRange(BuildContextMenuUI(items));
 
             ShowMenu(children);
@@ -641,6 +660,11 @@ namespace HavenSoft.HexManiac.WPF.Controls {
          recentMenu.VerticalOffset = (y + 1) * CellHeight;
          recentMenu.HorizontalOffset = x * CellWidth - HorizontalScrollValue;
          recentMenu.IsOpen = true;
+      }
+
+      protected override void OnIsKeyboardFocusedChanged(DependencyPropertyChangedEventArgs e) {
+         base.OnIsKeyboardFocusedChanged(e);
+         if (ViewPort is IEditableViewPort editableViewPort) editableViewPort.IsFocused = IsKeyboardFocused;
       }
 
       protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo) {

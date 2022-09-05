@@ -3,6 +3,7 @@ using HavenSoft.HexManiac.Core.Models.Runs;
 using HavenSoft.HexManiac.Core.Models.Runs.Sprites;
 using HavenSoft.HexManiac.Core.ViewModels.DataFormats;
 using HavenSoft.HexManiac.Core.ViewModels.Tools;
+using HavenSoft.HexManiac.Core.ViewModels.Images;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -28,19 +29,32 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
          Content.Add(pointer.DestinationAsText);
          var destinationRun = model.GetNextRun(pointer.Destination);
          var runSpecificContent = BuildContentForRun(model, pointer.Source, pointer.Destination, destinationRun);
-         if (runSpecificContent != null) Content.Add(runSpecificContent);
+         if (runSpecificContent != null) {
+            // special case: add images for pointers to OWs
+            if (destinationRun is ITableRun table && table.ElementCount == 1 && table.ElementContent.Any(seg => seg.Name == "sprites")) {
+               if (model.GetNextRun(table.ReadPointer(model, 0, "sprites")) is OverworldSpriteListRun osl) {
+                  if (model.GetNextRun(osl.ReadPointer(model, 0, 0)) is ISpriteRun spriteRun) {
+                     var image = ReadonlyPixelViewModel.Create(model, spriteRun, true);
+                     Content.Add(image);
+                  }
+               }
+            }
+            Content.Add(runSpecificContent);
+         }
       }
 
       public static object BuildContentForRun(IDataModel model, int source, int destination, IFormattedRun destinationRun, int preferredPaletteStart = -1, int preferredSpritePage = 0) {
          if (destination != destinationRun.Start) return null;
          if (destinationRun is PCSRun pcs) {
-            return PCSString.Convert(model, pcs.Start, pcs.Length);
+            return model.TextConverter.Convert(model, pcs.Start, pcs.Length);
          } else if (destinationRun is ISpriteRun sprite) {
             if (sprite is LzTilemapRun tilemap) tilemap.FindMatchingTileset(model);
             var paletteRuns = sprite.FindRelatedPalettes(model, source);
             var paletteRun = paletteRuns.FirstOrDefault();
             if (preferredPaletteStart >= 0) paletteRun = paletteRuns.FirstOrDefault(pRun => pRun.Start == preferredPaletteStart) ?? model.GetNextRun(preferredPaletteStart) as IPaletteRun;
-            var pixels = sprite.GetPixels(model, preferredSpritePage);
+            var tableIndex = -1;
+            if (model.GetNextRun(source) is ITableRun tableRun) tableIndex = tableRun.ConvertByteOffsetToArrayOffset(source).ElementIndex;
+            var pixels = sprite.GetPixels(model, preferredSpritePage, tableIndex);
             if (pixels == null) return null;
             var colors = paletteRun?.AllColors(model) ?? TileViewModel.CreateDefaultPalette((int)Math.Pow(2, sprite.SpriteFormat.BitsPerPixel));
             var imageData = SpriteTool.Render(pixels, colors, paletteRun?.PaletteFormat.InitialBlankPages ?? 0, 0);
@@ -49,15 +63,13 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
             var colors = paletteRun.GetPalette(model, 0);
             return new ReadonlyPaletteCollection(colors);
          } else if (destinationRun is IStreamRun streamRun) {
-            using (ModelCacheScope.CreateScope(model)) {
-               var lines = streamRun.SerializeRun().Split(Environment.NewLine);
-               if (lines.Length > 20) lines = lines.Take(20).ToArray();
-               return Environment.NewLine.Join(lines);
-            }
+            var lines = streamRun.SerializeRun().Split(Environment.NewLine);
+            if (lines.Length > 20) lines = lines.Take(20).ToArray();
+            return EllipsedLines(lines);
          } else if (destinationRun is ArrayRun arrayRun) {
             var stream = new StringBuilder();
             arrayRun.AppendTo(model, stream, arrayRun.Start, arrayRun.ElementLength * Math.Min(20, arrayRun.ElementCount), false);
-            return stream.ToString();
+            return EllipsedLines(stream.ToString().SplitLines());
          } else {
             return null;
          }
@@ -77,6 +89,8 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
 
       public void Visit(Ascii ascii, byte data) { }
 
+      public void Visit(Braille braille, byte data) { }
+
       public void Visit(Integer integer, byte data) {
          if (model.GetNextRun(integer.Source) is WordRun wordRun) {
             var desiredToolTip = wordRun.SourceArrayName;
@@ -89,7 +103,31 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
          }
       }
 
-      public void Visit(IntegerEnum integer, byte data) => Content.Add(integer.DisplayValue);
+      public void Visit(IntegerEnum integer, byte data) {
+         Content.Add(integer.Value);
+
+         if (model.GetNextRun(integer.Source) is not ITableRun containingTable) return;
+         var offset = containingTable.ConvertByteOffsetToArrayOffset(integer.Source);
+         var enumValue = model.ReadMultiByteValue(offset.SegmentStart, containingTable.ElementContent[offset.SegmentIndex].Length);
+         var segment = containingTable.ElementContent[offset.SegmentIndex];
+         if (segment is ArrayRunRecordSegment recordSegment) segment = recordSegment.CreateConcrete(model, integer.Source);
+         if (segment is not ArrayRunEnumSegment enumSeg) return;
+         var parentAddress = model.GetAddressFromAnchor(new(), -1, enumSeg.EnumName);
+         if (model.GetNextRun(parentAddress) is not ArrayRun parentArray) return;
+         foreach (var array in model.GetRelatedArrays(parentArray)) {
+            int segOffset = 0;
+            foreach (var seg in array.ElementContent) {
+               var itemIndex = enumValue + array.ParentOffset.BeginningMargin;
+               var destination = model.ReadPointer(array.Start + array.ElementLength * itemIndex + segOffset);
+               segOffset += seg.Length;
+               if (seg.Type != ElementContentType.Pointer) continue;
+               if (model.GetNextRun(destination) is not ISpriteRun spriteRun) continue;
+               var paletteRuns = spriteRun.FindRelatedPalettes(model, array.Start + array.ElementLength * itemIndex);
+               Content.Add(ReadonlyPixelViewModel.Create(model, spriteRun, paletteRuns.FirstOrDefault(), true));
+               return;
+            }
+         }
+      }
 
       public void Visit(IntegerHex integer, byte data) { }
 
@@ -140,5 +178,15 @@ namespace HavenSoft.HexManiac.Core.ViewModels.Visitors {
       public void Visit(UncompressedPaletteColor color, byte data) { }
 
       public void Visit(DataFormats.Tuple tuple, byte data) => Content.Add(tuple.ToString());
+
+      public static string EllipsedLines(string[] lines) {
+         const int MaxLength = 70;
+
+         for(int i = 0; i < lines.Length; i++) {
+            if (lines[i].Length > MaxLength) lines[i] = lines[i].Substring(0, MaxLength - 3) + "...";
+         }
+
+         return Environment.NewLine.Join(lines);
+      }
    }
 }
